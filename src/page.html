@@ -1,0 +1,424 @@
+<title>Honesty Kits</title>
+<meta name="description" content="Small, dependency-free TypeScript checks for the claims an AI product makes. Try each one in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a proof desk. Kit rail | the input sheet | the result proof, framed with printer's crop marks.
+   One screen at every size: a rail on wide screens, a kit picker on mid widths, Input/Result tabs on phones. */
+:root {
+  --paper: #ECF0F2;
+  --sheet: #FAFBFB;
+  --ink: #0F1A21;
+  --muted: #55626C;
+  --rule: #C9D2D8;
+  --accent: #0A6C88;
+  --ok: #14774D;
+  --bad: #BF3328;
+  --warn: #946006;
+  --info: #2A5A96;
+  --skip: #6B7781;
+  --ok-tint: #E2F1E8;
+  --bad-tint: #FAE6E3;
+  --warn-tint: #F6EDDA;
+  --info-tint: #E4ECF6;
+  --skip-tint: #E8ECEF;
+  --code-bg: #F1F4F6;
+  --mark-bg: #FFE9A8;
+  --sheet-lift: 0 6px 16px rgb(15 26 33 / 0.10);
+  --font-ui: 'Schibsted Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-title: 1.25rem;
+  --step-verdict: 1.4375rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0B1115; --sheet: #111A20; --ink: #E5ECEF; --muted: #95A3AD; --rule: #27333B; --accent: #57B6D3;
+    --ok: #4FC28E; --bad: #FF7A6B; --warn: #E3AE4B; --info: #8BB1EA; --skip: #8D9AA4;
+    --ok-tint: #12291F; --bad-tint: #2E1714; --warn-tint: #2B2212; --info-tint: #14213A; --skip-tint: #1A242B;
+    --code-bg: #0D151A; --mark-bg: #5A4712; --sheet-lift: inset 0 1px 0 rgb(255 255 255 / 0.07); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0B1115; --sheet: #111A20; --ink: #E5ECEF; --muted: #95A3AD; --rule: #27333B; --accent: #57B6D3;
+  --ok: #4FC28E; --bad: #FF7A6B; --warn: #E3AE4B; --info: #8BB1EA; --skip: #8D9AA4;
+  --ok-tint: #12291F; --bad-tint: #2E1714; --warn-tint: #2B2212; --info-tint: #14213A; --skip-tint: #1A242B;
+  --code-bg: #0D151A; --mark-bg: #5A4712; --sheet-lift: inset 0 1px 0 rgb(255 255 255 / 0.07); color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-ui); font-size: var(--step-0); line-height: 1.45; }
+*, *::before, *::after { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.visually-hidden { position: absolute; top: 0; left: 0; margin: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 20px;
+  padding-inline: 20px;
+  padding-block: 0 16px;
+}
+
+/* ---------- top bar ---------- */
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 20px; padding-block: 12px; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; flex: none; }
+.brand svg { width: 28px; height: 28px; flex: none; }
+.brand-name { font-weight: 700; font-size: var(--step-1); letter-spacing: -0.01em; }
+.tagline { margin: 0; color: var(--muted); min-width: 0; text-wrap: balance; }
+.top-actions { margin-left: auto; display: flex; gap: 8px; flex: none; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 3px; background: transparent; color: var(--ink); text-decoration: none; font-weight: 600; font-size: var(--step--1); cursor: pointer; white-space: nowrap; }
+.btn-ink { background: var(--ink); color: var(--sheet); }
+.btn-ink:hover { background: var(--accent); border-color: var(--accent); }
+.btn:not(.btn-ink):hover { background: var(--sheet); }
+.btn-small { min-height: 30px; padding: 0 10px; font-size: 0.75rem; border-color: var(--rule); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- kit rail ---------- */
+.rail { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 2px; }
+.rail-group h2 { margin: 0 0 4px; font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.rail-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.rail button { width: 100%; text-align: left; display: grid; gap: 0; padding: 6px 10px; border: 0; border-radius: 2px; background: transparent; cursor: pointer; }
+.rail button:hover { background: var(--sheet); }
+.rail button[aria-current="page"] { background: var(--ink); color: var(--sheet); }
+.rail .kit-name { font-weight: 600; font-size: var(--step--1); }
+.rail .kit-pkg { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted); }
+.rail button[aria-current="page"] .kit-pkg { color: inherit; opacity: 0.75; }
+.rail-mcp { margin-top: auto; border-top: 1px solid var(--rule); padding-top: 12px; font-size: var(--step--1); color: var(--muted); }
+.rail-mcp button { padding: 0; color: var(--accent); background: none; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; display: inline; width: auto; }
+.rail-mcp button:hover { background: none; }
+
+.picker { display: none; }
+.pane-tabs { display: none; }
+
+/* ---------- work area ---------- */
+.work { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.kit-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 24px; flex-wrap: wrap; }
+.kit-head-text { min-width: 0; max-width: 62ch; }
+.kit-head h1 { margin: 0; font-size: var(--step-title); line-height: 1.2; letter-spacing: -0.01em; text-wrap: balance; }
+.kit-head p { margin: 4px 0 0; color: var(--muted); text-wrap: pretty; }
+.examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.examples-label { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+.chip { min-height: 32px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); cursor: pointer; font-size: var(--step--1); }
+.chip[aria-pressed="true"] { border: 1.5px solid var(--ink); background: var(--sheet); font-weight: 600; }
+
+.panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; }
+.pane { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--sheet); border: 1px solid var(--rule); border-radius: 3px; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 14px; border-bottom: 1px solid var(--rule); min-height: 46px; flex-wrap: wrap; }
+.pane-head h2 { margin: 0; font-size: var(--step--1); font-weight: 600; }
+.pane-note { font-size: 0.75rem; color: var(--muted); }
+.pane-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+
+/* fields */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label, .field legend { font-size: var(--step--1); font-weight: 600; padding: 0; }
+.field textarea, .field input[type="text"] { width: 100%; border: 1px solid var(--rule); border-radius: 2px; background: var(--code-bg); padding: 8px 10px; resize: vertical; }
+.field textarea { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field textarea.prose { font-family: var(--font-ui); font-size: var(--step--1); white-space: pre-wrap; }
+.field input[type="text"] { font-family: var(--font-mono); font-size: 0.8125rem; min-height: 34px; }
+.field [aria-invalid="true"] { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); }
+.field-error { color: var(--bad); font-size: 0.75rem; font-family: var(--font-mono); }
+fieldset.field { border: 0; margin: 0; padding: 0; }
+.field.grow { flex: 1 1 auto; min-height: 140px; }
+.field.grow textarea { flex: 1 1 auto; min-height: 110px; resize: none; }
+.segmented { display: flex; flex-wrap: wrap; gap: 6px; }
+.segmented label { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 2px; font-weight: 500; cursor: pointer; background: var(--code-bg); }
+.segmented input { accent-color: var(--accent); margin: 0; }
+.segmented label:has(input:checked) { border-color: var(--ink); background: var(--sheet); }
+
+/* ---------- result proof ---------- */
+.proof { position: relative; box-shadow: var(--sheet-lift); }
+.crop { position: absolute; width: 14px; height: 14px; border-color: var(--muted); border-style: solid; pointer-events: none; }
+.crop-tl { top: -9px; left: -9px; border-width: 1.5px 0 0 1.5px; }
+.crop-tr { top: -9px; right: -9px; border-width: 1.5px 1.5px 0 0; }
+.crop-bl { bottom: -9px; left: -9px; border-width: 0 0 1.5px 1.5px; }
+.crop-br { bottom: -9px; right: -9px; border-width: 0 1.5px 1.5px 0; }
+.reg { width: 28px; height: 28px; flex: none; display: block; }
+.reg .reg-ink { fill: none; stroke: var(--ink); stroke-width: 1.3; }
+.reg .reg-plate { fill: none; stroke: var(--c, var(--skip)); stroke-width: 3.2; stroke-opacity: 0.85; }
+.reg .reg-dot { fill: var(--ink); }
+.result-title { display: flex; align-items: center; gap: 10px; }
+.label-short { display: none; }
+@media (max-width: 860px) { .label-short { display: inline; } }
+.result, .code-view { min-height: 0; overflow-y: auto; flex: 1; }
+.verdict { display: grid; gap: 4px; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+.verdict-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tone { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.tone .glyph { width: 18px; height: 18px; font-size: 0.75rem; }
+.verdict h3 { margin: 0; font-size: var(--step-verdict); line-height: 1.25; letter-spacing: -0.012em; text-wrap: balance; }
+.verdict .summary { margin: 0; color: var(--muted); font-size: var(--step--1); max-width: 72ch; text-wrap: pretty; }
+.tone-pass { color: var(--ok); } .tone-fail, .tone-error, .tone-offline { color: var(--bad); } .tone-warn { color: var(--warn); } .tone-info, .tone-loading { color: var(--info); }
+.progress { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.progress-better { color: var(--ok); background: var(--ok-tint); }
+.progress-worse { color: var(--bad); background: var(--bad-tint); }
+.result-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.row { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
+.row-title { font-weight: 500; font-size: var(--step--1); overflow-wrap: anywhere; }
+.row-title mark { background: var(--mark-bg); color: inherit; padding: 0 2px; border-radius: 2px; }
+.row-detail { color: var(--muted); font-size: 0.8125rem; overflow-wrap: anywhere; text-wrap: pretty; }
+.row-detail.mono { font-family: var(--font-mono); font-size: 0.75rem; overflow-wrap: break-word; }
+.row-fix { margin-top: 3px; font-size: 0.8125rem; color: var(--ink); padding-left: 8px; border-left: 2px solid var(--rule); }
+.row-fix strong { font-weight: 600; }
+.glyph { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 1.5px solid currentColor; border-radius: 2px; font-family: var(--font-mono); font-weight: 600; font-size: 0.8125rem; line-height: 1; }
+.mark-ok { color: var(--ok); background: var(--ok-tint); }
+.mark-bad { color: var(--bad); background: var(--bad-tint); }
+.mark-warn { color: var(--warn); background: var(--warn-tint); }
+.mark-info { color: var(--info); background: var(--info-tint); }
+.mark-skip { color: var(--skip); background: var(--skip-tint); border-style: dashed; }
+.limit { margin: 0; padding: 10px 12px; background: var(--code-bg); border-radius: 2px; font-size: 0.8125rem; color: var(--muted); }
+.limit strong { color: var(--ink); font-weight: 600; }
+.stale-note { margin: 0; padding: 8px 12px; border: 1px dashed var(--bad); border-radius: 2px; color: var(--bad); font-size: 0.8125rem; }
+.is-stale .rows, .is-stale .verdict, .is-stale .viz-holder { opacity: 0.45; }
+details.raw summary { cursor: pointer; font-size: var(--step--1); font-weight: 600; color: var(--accent); }
+details.raw pre { margin: 8px 0 0; max-height: 240px; overflow: auto; background: var(--code-bg); border-radius: 2px; padding: 10px; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.5; }
+.code-view { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.code-note { margin: 0; font-size: 0.8125rem; color: var(--muted); max-width: 70ch; }
+.code-note code, .limit code { font-family: var(--font-mono); font-size: 0.75rem; }
+pre.code { margin: 0; overflow: auto; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 2px; padding: 12px; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.55; tab-size: 2; }
+.code-view .btn { align-self: flex-start; }
+.pane-foot { border-top: 1px solid var(--rule); padding: 8px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 0.75rem; color: var(--muted); }
+.install { display: inline-flex; align-items: center; border: 1px solid var(--rule); border-radius: 2px; background: var(--code-bg); }
+.install code { font-family: var(--font-mono); font-size: 0.75rem; padding: 4px 8px; color: var(--ink); }
+.copy { border: 0; border-left: 1px solid var(--rule); background: transparent; padding: 4px 8px; cursor: pointer; font-size: 0.75rem; font-weight: 600; color: var(--accent); }
+.foot-links { display: inline-flex; gap: 12px; margin-left: auto; }
+.retry { align-self: flex-start; }
+
+/* ---------- result graphics (viz.mjs) ---------- */
+.viz { margin: 0; padding: 10px 10px 4px; border: 1px solid var(--rule); border-radius: 2px; background: var(--paper); overflow: hidden; }
+.viz-svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.viz-svg text { font-family: var(--font-ui); fill: var(--ink); }
+.viz-svg .v-caption { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; fill: var(--muted); }
+.viz-svg .v-label { font-size: 12px; }
+.viz-svg .v-tick { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+.viz-svg .v-value { font-family: var(--font-mono); font-size: 11px; }
+.viz-svg .v-strong { font-size: 13px; font-weight: 600; }
+.viz-svg .v-big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.viz-svg .v-hash { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+.viz-svg .v-tag { font-size: 11.5px; font-weight: 600; }
+.viz-svg .v-glyph { font-family: var(--font-mono); font-size: 10px; font-weight: 600; }
+.v-ok { --c: var(--ok); --t: var(--ok-tint); }
+.v-bad { --c: var(--bad); --t: var(--bad-tint); }
+.v-warn { --c: var(--warn); --t: var(--warn-tint); }
+.v-info { --c: var(--info); --t: var(--info-tint); }
+.v-skip { --c: var(--skip); --t: var(--skip-tint); }
+.viz-svg .v-mark .v-badge { fill: var(--t); stroke: var(--c); stroke-width: 1.4; }
+.viz-svg .v-mark .v-glyph { fill: var(--c); }
+.viz-svg .v-line { fill: none; stroke: var(--c); stroke-width: 2; stroke-linecap: round; }
+.viz-svg .v-line.v-quiet { stroke-width: 1.5; opacity: 0.55; }
+.viz-svg .v-tag { fill: var(--c); }
+.viz-svg .v-node rect { fill: var(--sheet); stroke: var(--rule); }
+.viz-svg .v-ghost rect { fill: none; stroke: var(--bad); stroke-dasharray: 4 3; }
+.viz-svg .v-band { fill: none; stroke: var(--c); stroke-opacity: 0.3; stroke-width: 16; }
+.viz-svg .v-needle line { stroke: var(--c); stroke-width: 3; stroke-linecap: round; }
+.viz-svg .v-hub { fill: var(--c); }
+.viz-svg .v-axis { stroke: var(--rule); stroke-width: 1; }
+.viz-svg .v-threshold { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; }
+.viz-svg .v-stem { stroke: var(--c); stroke-width: 1; opacity: 0.6; }
+.viz-svg .v-pt { fill: var(--muted); }
+.viz-svg .v-pt.v-ok, .viz-svg .v-pt.v-bad { fill: var(--c); }
+.viz-svg .v-bar { fill: var(--c); }
+.viz-svg .v-bar.v-skip { fill: var(--skip); opacity: 0.55; }
+.viz-svg .v-track { fill: var(--skip-tint); }
+.viz-svg .v-ceiling { stroke: var(--ink); stroke-width: 2; }
+.viz-svg .v-ring { fill: none; stroke: var(--skip-tint); stroke-width: 9; }
+.viz-svg .v-ring.v-dashed { stroke: var(--skip); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.viz-svg .v-ring-fill { fill: none; stroke: var(--c); stroke-width: 9; stroke-linecap: butt; }
+.viz-svg .v-block rect { fill: var(--t); stroke: var(--c); stroke-width: 1.4; }
+.viz-svg .v-block.v-ghost rect { fill: none; stroke-dasharray: 4 3; }
+.viz-svg .v-link { fill: none; stroke: var(--c); stroke-width: 2; }
+.viz-svg .v-anchor circle, .viz-svg .v-anchor path { fill: none; stroke: var(--accent); stroke-width: 1.4; }
+.viz-svg .v-cross { fill: none; stroke: var(--bad); stroke-width: 2; stroke-linecap: round; }
+.v-lanes { display: grid; gap: 8px; }
+.v-lane { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.v-lane-title { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); width: 72px; flex: none; }
+.v-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px; border: 1.4px solid var(--c); border-radius: 2px; background: var(--t); font-size: 0.8125rem; color: var(--ink); }
+.v-chip b { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--c); font-family: var(--font-mono); font-size: 0.6875rem; }
+.v-chip.v-skip { border-style: dashed; }
+
+/* ---------- agent dialog ---------- */
+dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100% - 32px); border: 1px solid var(--rule); border-radius: 4px; padding: 0; background: var(--sheet); color: var(--ink); }
+dialog::backdrop { background: rgb(8 14 18 / 0.55); }
+.dialog-inner { padding: 20px; display: grid; gap: 14px; }
+.dialog-inner h2 { margin: 0; font-size: var(--step-1); }
+.dialog-inner p { margin: 0; color: var(--muted); max-width: 60ch; }
+.install-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.snippet { display: grid; gap: 6px; }
+.snippet-label { font-size: var(--step--1); font-weight: 600; }
+.snippet-box { display: flex; align-items: stretch; border: 1px solid var(--rule); border-radius: 2px; background: var(--code-bg); min-width: 0; }
+.snippet-box pre { margin: 0; padding: 8px 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.75rem; flex: 1; min-width: 0; }
+.dialog-close { justify-self: end; }
+
+/* ---------- short laptop screens ---------- */
+@media (min-width: 1100px) and (max-height: 900px) {
+  .rail { gap: 10px; }
+  .rail .kit-pkg { display: none; }
+  .rail button { padding: 5px 10px; }
+}
+@media (min-width: 1100px) and (max-height: 760px) {
+  .rail-mcp { display: none; }
+}
+
+/* ---------- mid widths: kit picker instead of the rail ---------- */
+@media (max-width: 1099px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .picker { display: flex; align-items: center; gap: 10px; }
+  .picker label { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .picker select { min-height: 40px; padding: 0 10px; border: 1px solid var(--ink); border-radius: 3px; background: var(--sheet); max-width: 100%; }
+}
+
+/* ---------- phones and narrow tablets: Input / Result tabs, still one screen ---------- */
+@media (max-width: 860px) {
+  .app { padding-inline: 16px; padding-block: 0 12px; }
+  .top { gap: 8px 12px; padding-block: 8px; margin-bottom: 10px; }
+  .tagline { display: none; }
+  .brand-name { font-size: var(--step-0); }
+  .btn, .chip, .picker select { min-height: 44px; }
+  .btn-small { min-height: 44px; }
+  .work { gap: 8px; }
+  .kit-head h1 { font-size: var(--step-1); }
+  .verdict h3 { font-size: 1.25rem; text-wrap: balance; }
+  .kit-head p { font-size: var(--step--1); }
+  .examples-label { display: none; }
+  .examples { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chip { flex: none; }
+  .pane-tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .pane-tabs button { min-height: 44px; border: 0; background: var(--sheet); font-weight: 600; font-size: var(--step--1); cursor: pointer; }
+  .pane-tabs button + button { border-left: 1px solid var(--rule); }
+  .pane-tabs button[aria-selected="true"] { background: var(--ink); color: var(--sheet); }
+  .panes { grid-template-columns: minmax(0, 1fr); }
+  body[data-pane="result"] #input-pane, body[data-pane="input"] #result-pane { display: none; }
+  .kit-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  #input-pane .pane-head { display: none; }
+  #result-pane > .pane-head { display: none; }
+  .install, .foot-links a[data-npm] { display: none; }
+  .pane-foot { flex-wrap: nowrap; gap: 8px; }
+  .pane-foot .pane-actions { margin-left: 0; }
+  .label-long { display: none; }
+  .crop-tl, .crop-bl { left: -7px; } .crop-tr, .crop-br { right: -7px; }
+  .crop-tl, .crop-tr { top: -6px; } .crop-bl, .crop-br { bottom: -6px; }
+  .foot-note { display: none; }
+  .brand { min-height: 44px; }
+  .copy { min-height: 44px; padding: 0 12px; }
+  .foot-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; }
+  .pane-foot { padding-block: 4px; }
+  .pane-note { display: none; }
+}
+@media (max-width: 480px) {
+  .top-actions .btn-quiet { display: none; }
+  .open-agent-long { display: none; }
+}
+@media (min-width: 481px) {
+  .open-agent-short { display: none; }
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <a class="brand" href="#grounding-kit" aria-label="Honesty Kits home">
+      <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="16" cy="16" r="9"></circle>
+        <circle cx="16" cy="16" r="3.2" fill="currentColor" stroke="none"></circle>
+        <path d="M16 1v8M16 23v8M1 16h8M23 16h8"></path>
+      </svg>
+      <span class="brand-name">honesty kits</span>
+    </a>
+    <p class="tagline">Small, dependency-free checks for the claims your AI product makes. Pick one and try it on real examples.</p>
+    <nav class="top-actions" aria-label="Project">
+      <button id="open-agent" class="btn" type="button"><span class="open-agent-long">Add to your AI agent</span><span class="open-agent-short">Add to agent</span></button>
+      <a class="btn btn-quiet" href="https://github.com/lkopietz3-byte/honesty-kits" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Kits"></nav>
+
+  <main class="work" id="work">
+    <div class="picker">
+      <label for="kit-select">Kit</label>
+      <select id="kit-select"></select>
+    </div>
+    <div class="kit-head">
+      <div class="kit-head-text">
+        <h1 id="kit-title">Citations</h1>
+        <p id="kit-question">Does each sentence cite evidence that actually says it?</p>
+      </div>
+      <div class="examples" id="examples" role="group" aria-label="Examples"></div>
+    </div>
+    <div class="pane-tabs" role="tablist" aria-label="Show">
+      <button type="button" role="tab" data-pane-tab="input" aria-selected="false" aria-controls="input-pane">Input</button>
+      <button type="button" role="tab" data-pane-tab="result" aria-selected="true" aria-controls="result-pane">Result</button>
+    </div>
+
+    <div class="panes">
+      <section class="pane" id="input-pane" aria-labelledby="input-title">
+        <div class="pane-head">
+          <h2 id="input-title">Input</h2>
+          <span class="pane-note">Edit anything. It reruns as you type.</span>
+        </div>
+        <form class="pane-body" id="fields" novalidate></form>
+      </section>
+
+      <section class="pane proof" id="result-pane" aria-labelledby="result-title">
+        <span class="crop crop-tl" aria-hidden="true"></span><span class="crop crop-tr" aria-hidden="true"></span><span class="crop crop-bl" aria-hidden="true"></span><span class="crop crop-br" aria-hidden="true"></span>
+        <div class="pane-head">
+          <div class="result-title">
+            <svg class="reg" id="reg" viewBox="0 0 28 28" role="img" aria-label="Waiting for a result">
+              <g class="reg-plate" id="reg-plate"><circle cx="14" cy="14" r="7.5"></circle><path d="M14 2v6M14 20v6M2 14h6M20 14h6"></path></g>
+              <g class="reg-ink"><circle cx="14" cy="14" r="7.5"></circle><path d="M14 2v6M14 20v6M2 14h6M20 14h6"></path></g>
+              <circle class="reg-dot" cx="14" cy="14" r="2.2"></circle>
+            </svg>
+            <h2 id="result-title">Result</h2>
+          </div>
+          <span class="pane-note" id="timing">Loading the kit from npm…</span>
+          <div class="pane-actions">
+            <button class="btn btn-small" type="button" id="copy-report" disabled>Copy report</button>
+            <button class="btn btn-small" type="button" id="view-code" aria-pressed="false" disabled>Use it in your code</button>
+          </div>
+        </div>
+        <div id="result" class="result" aria-live="polite">
+          <div class="verdict">
+            <div class="verdict-top"><span class="tone tone-loading"><span class="glyph mark-info" aria-hidden="true">…</span>Loading</span></div>
+            <h3>Fetching the published kit from npm.</h3>
+          </div>
+        </div>
+        <div id="code-view" class="code-view" hidden></div>
+        <div class="pane-foot" id="foot"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<dialog id="agent-dialog" aria-labelledby="agent-title">
+  <div class="dialog-inner">
+    <h2 id="agent-title">Use these checks from your AI coding agent</h2>
+    <p><strong>honesty-mcp</strong> wraps eleven of these kits as tools for Claude Code, Cursor, VS Code and other MCP clients. It runs on your machine with npx, and the kits make no network calls.</p>
+    <div class="install-buttons">
+      <a class="btn btn-ink" id="add-cursor" href="#">Add to Cursor</a>
+      <a class="btn" id="add-vscode" href="#" target="_blank" rel="noopener">Add to VS Code</a>
+    </div>
+    <div class="snippet">
+      <span class="snippet-label" id="cc-label">Claude Code</span>
+      <div class="snippet-box"><pre id="cc-cmd" aria-labelledby="cc-label"></pre><button class="copy" type="button" data-copy="cc-cmd">Copy</button></div>
+    </div>
+    <div class="snippet">
+      <span class="snippet-label" id="json-label">Any other MCP client (mcpServers config)</span>
+      <div class="snippet-box"><pre id="json-cfg" aria-labelledby="json-label"></pre><button class="copy" type="button" data-copy="json-cfg">Copy</button></div>
+    </div>
+    <p>Published as <a href="https://www.npmjs.com/package/honesty-mcp" target="_blank" rel="noopener">honesty-mcp on npm</a> and listed in the official MCP registry. Buttons for Cursor and VS Code open that app if it is installed.</p>
+    <button class="btn dialog-close" type="button" id="close-agent">Close</button>
+  </div>
+</dialog>
+
+<p class="visually-hidden" id="announce" aria-live="polite"></p>
+
+<script type="module" src="./app.mjs"></script>

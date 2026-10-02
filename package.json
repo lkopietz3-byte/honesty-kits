@@ -1,0 +1,24 @@
+{
+  "name": "honesty-kits-site",
+  "private": true,
+  "type": "module",
+  "description": "Front door and in-browser playground for the honesty kits.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "serve": "node tools/serve.mjs"
+  },
+  "devDependencies": {
+    "advice-ledger-kit": "0.2.0",
+    "agent-receipt-kit": "0.2.0",
+    "audit-chain-kit": "0.2.0",
+    "claims-registry-kit": "0.3.0",
+    "corroboration-kit": "0.2.0",
+    "cost-governor-kit": "0.2.0",
+    "freshness-kit": "0.2.0",
+    "grounding-kit": "0.2.0",
+    "mutation-invariance-kit": "0.2.0",
+    "payout-invariance-kit": "0.2.0",
+    "provenance-kit": "0.2.0",
+    "trust-core": "0.2.0"
+  }
+}
