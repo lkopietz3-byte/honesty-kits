@@ -1,7 +1,7 @@
 // Playground UI. Loads each kit's published files from jsDelivr (a mirror of
 // npm), runs the demo from demos.mjs against it, and renders the result, its
 // graphic, a copyable report and the code to run the same check in CI.
-import { GROUPS, KITS, formatJson, mcpLinks, reportMarkdown } from './demos.mjs';
+import { GROUPS, KITS, decodeExample, encodeExample, formatJson, mcpLinks, reportMarkdown } from './demos.mjs';
 import { renderViz } from './viz.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -109,7 +109,7 @@ function go(id) {
 }
 
 // --------------------------------------------------------------- selection
-function selectKit(id) {
+function selectKit(id, sharedInput = null) {
   const kit = KITS.find((k) => k.id === id) ?? KITS[0];
   state.kit = kit;
   state.result = null;
@@ -121,7 +121,27 @@ function selectKit(id) {
   document.title = `${kit.name} · Honesty Kits`;
   renderExamples();
   renderFoot();
-  usePreset(0);
+  if (sharedInput) useInput(sharedInput);
+  else usePreset(0);
+}
+
+// A shared link's own input: no example chip is pressed, and the live tally
+// starts from this input.
+function useInput(input) {
+  state.preset = -1;
+  state.baseline = null;
+  state.edited = false;
+  for (const chip of $('examples').querySelectorAll('.chip')) chip.setAttribute('aria-pressed', 'false');
+  renderFields(input);
+  run();
+}
+
+/** A link that reopens the current kit with the current (last valid) input. */
+function exampleLink() {
+  const { input, errors } = readInput();
+  const use = errors.length ? state.input : input;
+  if (!use) return null;
+  return `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, use)}`;
 }
 
 function renderExamples() {
@@ -494,7 +514,7 @@ function setupAgent() {
 renderNav();
 setupAgent();
 COPY_REPORT.addEventListener('click', (event) => {
-  if (state.result) copyText(reportMarkdown(state.kit, state.result), event.currentTarget, $('result'));
+  if (state.result) copyText(reportMarkdown(state.kit, state.result, exampleLink()), event.currentTarget, $('result'));
 });
 VIEW_CODE.addEventListener('click', () => (state.view === 'code' ? hideCode() : showCode()));
 for (const button of document.querySelectorAll('[data-pane-tab]')) button.addEventListener('click', () => setPane(button.dataset.paneTab));
@@ -507,13 +527,25 @@ new ResizeObserver(() => {
   resizeTimer = setTimeout(() => { if (state.result && state.view === 'result') drawViz(state.result, false); }, 120);
 }).observe($('result-pane'));
 
-const fromHash = () => decodeURIComponent(location.hash.slice(1));
-addEventListener('hashchange', () => {
-  const id = fromHash();
-  if (id === 'add-to-agent') return openAgent();
-  if (KITS.some((k) => k.id === id) && id !== state.kit?.id) { hideCode(); selectKit(id); }
+// Fragment forms: #<kit>, #<kit>~<shared example>, #add-to-agent.
+function readHash() {
+  const raw = decodeURIComponent(location.hash.slice(1));
+  const [id, token] = raw.split('~');
+  const kit = KITS.find((k) => k.id === id);
+  return { raw, kit, shared: kit && token ? decodeExample(kit, token) : null };
+}
+$('copy-link').addEventListener('click', (event) => {
+  const link = exampleLink();
+  if (link) copyText(link, event.currentTarget, $('fields'));
 });
-const initial = fromHash();
-selectKit(KITS.some((k) => k.id === initial) ? initial : KITS[0].id);
-if (initial === 'add-to-agent') openAgent();
+addEventListener('hashchange', () => {
+  const { raw, kit, shared } = readHash();
+  if (raw === 'add-to-agent') return openAgent();
+  if (!kit) return;
+  if (shared) { hideCode(); selectKit(kit.id, shared); }
+  else if (kit.id !== state.kit?.id) { hideCode(); selectKit(kit.id); }
+});
+const initial = readHash();
+selectKit(initial.kit ? initial.kit.id : KITS[0].id, initial.shared);
+if (initial.raw === 'add-to-agent') openAgent();
 for (const kit of KITS) if (kit !== state.kit) setTimeout(() => loadKit(kit).catch(() => {}), 1200);
