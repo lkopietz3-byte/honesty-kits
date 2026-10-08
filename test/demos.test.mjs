@@ -113,3 +113,28 @@ test('formatJson output is valid JSON for every preset', () => {
     if (typeof value === 'object') assert.deepEqual(JSON.parse(formatJson(value)), value);
   }
 });
+
+test('every example survives a shared link round trip, and bad links are refused', async () => {
+  const { encodeExample, decodeExample } = await import('../demos.mjs');
+  for (const kit of KITS) {
+    for (const preset of kit.presets) {
+      const token = encodeExample(kit, preset.input);
+      assert.match(token, /^[A-Za-z0-9_-]+$/);
+      assert.deepEqual(decodeExample(kit, token), preset.input, `${kit.id} ${preset.label}`);
+    }
+  }
+  const grounding = KITS.find((k) => k.id === 'grounding-kit');
+  const unicode = { text: 'Ünïcode — 14 hours [[cite:e1]]. 🚀', evidence: { e1: 'naïve café' } };
+  assert.deepEqual(decodeExample(grounding, encodeExample(grounding, unicode)), unicode);
+  const payout = KITS.find((k) => k.id === 'payout-invariance-kit');
+  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  assert.equal(decodeExample(payout, enc({ v: 1, input: { ranker: 'something else', candidates: [] } })), null, 'unknown choice');
+  assert.equal(decodeExample(grounding, enc({ v: 1, input: { text: 'x' } })), null, 'missing field');
+  assert.equal(decodeExample(grounding, enc({ v: 1, input: { text: 1, evidence: {} } })), null, 'wrong type');
+  assert.equal(decodeExample(grounding, enc({ v: 1, input: { text: 'x', evidence: {}, extra: 1 } })), null, 'unknown field');
+  assert.equal(decodeExample(grounding, enc({ v: 2, input: { text: 'x', evidence: {} } })), null, 'unknown version');
+  assert.equal(decodeExample(grounding, 'not base64!'), null, 'bad characters');
+  assert.equal(decodeExample(grounding, 'a'.repeat(20000)), null, 'too long');
+  const md = reportMarkdown(grounding, { headline: 'h', rows: [] }, 'https://example.test/#grounding-kit~abc');
+  assert.ok(md.endsWith('[Open this example in the playground](https://example.test/#grounding-kit~abc)'));
+});

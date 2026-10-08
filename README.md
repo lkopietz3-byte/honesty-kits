@@ -64,6 +64,7 @@ claude mcp add honesty-mcp -- npx -y honesty-mcp
 - **Strict about input.** Malformed input throws a clear error instead of producing a plausible wrong answer.
 - **Honest about limits.** Every kit's README has a section on its limits, and every result in the playground says what the kit does not check. A structural citation check is not a fact check; passing a scenario test is evidence, not a proof.
 - **Built to run in CI.** The playground's "Use it in your code" button gives you the same check as a module that exits with code 1 when it finds a problem.
+- **Shareable.** "Copy link" gives a link that opens the kit with your exact input, and copied reports include it. The example travels in the URL fragment, which browsers never send to a server.
 
 ## This repository
 

@@ -1005,7 +1005,7 @@ export function mcpLinks(toBase64) {
 }
 
 /** A Markdown report of one result, for a pull request, issue or chat. */
-export function reportMarkdown(kit, result) {
+export function reportMarkdown(kit, result, link) {
   const sign = { ok: '✓', bad: '✗', warn: '!', info: 'i', skip: '–' };
   const lines = [`**${kit.id}@${kit.version}: ${result.headline}**`, ''];
   if (result.summary) lines.push(result.summary, '');
@@ -1014,5 +1014,49 @@ export function reportMarkdown(kit, result) {
     if (row.fix) lines.push(`  - Fix: ${row.fix}`);
   }
   lines.push('', `_What it does not check: ${kit.limit}_`);
+  if (link) lines.push('', `[Open this example in the playground](${link})`);
   return lines.join('\n');
+}
+
+// ------------------------------------------------------------ shared links
+// An example travels in the URL fragment (never sent to a server) as
+// base64url JSON. Decoding checks the shape against the kit's own fields, so a
+// hand-edited or truncated link falls back to the kit's first example.
+
+const MAX_TOKEN = 16000;
+const toBase64Url = (text) => {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const fromBase64Url = (token) => {
+  const binary = atob(token.replace(/-/g, '+').replace(/_/g, '/'));
+  return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
+};
+
+/** Encode a kit's input for a shareable link fragment. */
+export function encodeExample(kit, input) {
+  const picked = {};
+  for (const field of kit.fields) picked[field.key] = input[field.key];
+  return toBase64Url(JSON.stringify({ v: 1, input: picked }));
+}
+
+/** Decode a link fragment back into a kit input, or null when it does not fit the kit. */
+export function decodeExample(kit, token) {
+  if (typeof token !== 'string' || token.length === 0 || token.length > MAX_TOKEN || !/^[A-Za-z0-9_-]+$/.test(token)) return null;
+  let parsed;
+  try { parsed = JSON.parse(fromBase64Url(token)); } catch { return null; }
+  if (!parsed || parsed.v !== 1 || typeof parsed.input !== 'object' || parsed.input === null || Array.isArray(parsed.input)) return null;
+  const input = {};
+  for (const field of kit.fields) {
+    if (!Object.hasOwn(parsed.input, field.key)) return null;
+    const value = parsed.input[field.key];
+    if (field.kind === 'choice' && !field.options.includes(value)) return null;
+    if ((field.kind === 'text' || field.kind === 'line') && typeof value !== 'string') return null;
+    if (field.kind === 'json' && value === undefined) return null;
+    input[field.key] = value;
+  }
+  if (Object.keys(parsed.input).some((key) => !kit.fields.some((f) => f.key === key))) return null;
+  return input;
 }
