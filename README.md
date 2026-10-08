@@ -2,6 +2,8 @@
 
 Small, dependency-free TypeScript checks for the claims your AI product makes.
 
+[![The playground: a draft with a bad citation gets fixed, a ranking moves when a partner pays more, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
+
 **[Try every kit in your browser →](https://lkopietz3-byte.github.io/honesty-kits/)**
 Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm packages in your browser; nothing you type is sent anywhere.
 
@@ -72,5 +74,7 @@ npm install        # installs the exact kit versions the page loads
 npm test           # runs every example and every generated snippet against the real kits
 node tools/build.mjs && npx serve dist
 ```
+
+`node tools/demo-gif.mjs --playwright-root <path to playwright>` re-records `docs/demo.gif` from the live site, and `tools/og.mjs` re-captures the social card.
 
 MIT licensed.

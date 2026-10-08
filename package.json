@@ -15,9 +15,11 @@
     "corroboration-kit": "0.2.0",
     "cost-governor-kit": "0.2.0",
     "freshness-kit": "0.2.0",
+    "gifenc": "1.0.3",
     "grounding-kit": "0.2.0",
     "mutation-invariance-kit": "0.2.0",
     "payout-invariance-kit": "0.2.0",
+    "pngjs": "7.0.0",
     "provenance-kit": "0.2.0",
     "trust-core": "0.2.0"
   }
