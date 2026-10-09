@@ -533,6 +533,8 @@ new ResizeObserver(() => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (state.result && state.view === 'result') drawViz(state.result, false); }, 120);
 }).observe($('result-pane'));
+// Graphics fit their labels using the page fonts; redraw once those load.
+document.fonts?.ready.then(() => { if (state.result && state.view === 'result') drawViz(state.result, false); });
 
 // Fragment forms: #<kit>, #<kit>~<shared example>, #add-to-agent.
 function readHash() {

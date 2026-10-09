@@ -29,6 +29,43 @@ function frame(width, height, label) {
 }
 const trunc = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
+// Text is measured with the page's own fonts (canvas measureText), so labels
+// can wrap, flip sides or shorten before they collide or leave the frame.
+const FONTS = {
+  caption: ["10px 'IBM Plex Mono', ui-monospace, monospace", 0.8],
+  tick: ["10.5px 'IBM Plex Mono', ui-monospace, monospace", 0],
+  label: ["12px 'Schibsted Grotesk', system-ui, sans-serif", 0],
+  tag: ["600 11.5px 'Schibsted Grotesk', system-ui, sans-serif", 0],
+  strong: ["600 13px 'Schibsted Grotesk', system-ui, sans-serif", 0],
+};
+let ctx2d;
+function measure(text, kind) {
+  const [font, spacing] = FONTS[kind];
+  ctx2d ??= typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+  if (!ctx2d) return text.length * 7;
+  ctx2d.font = font;
+  return ctx2d.measureText(text).width + spacing * text.length;
+}
+function fit(text, maxWidth, kind) {
+  if (measure(text, kind) <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && measure(`${t}…`, kind) > maxWidth) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+/** Word-wrap into at most `maxLines` lines no wider than `maxWidth`. */
+function wrap(text, maxWidth, kind, maxLines = 2) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word;
+    if (!line || measure(next, kind) <= maxWidth) line = next;
+    else { lines.push(line); line = word; }
+  }
+  if (line) lines.push(line);
+  if (lines.length > maxLines) lines.splice(maxLines - 1, lines.length, lines.slice(maxLines - 1).join(' '));
+  return lines.map((l) => fit(l, maxWidth, kind));
+}
+
 /** Animate only when asked and allowed; the element's own attributes are the resting frame. */
 function play(motion, el, keyframes, { duration = 240, delay = 0 } = {}) {
   if (!motion.on || typeof el.animate !== 'function') return;
@@ -100,9 +137,13 @@ function threads(v, W, motion) {
 
 // ----------------------------------------------------------------- needle
 function needle(v, W, motion) {
-  const H = 150;
+  const r = Math.min(104, W / 2 - 60);
+  const summary = `${v.supports} for · ${v.contradicts} against`;
+  // On narrow panels the summary under the hub would run into the end labels.
+  const low = r < (measure('CONTRADICTS', 'caption') + measure(summary, 'strong')) / 2 + 8;
+  const H = low ? 166 : 150;
   const svg = frame(W, H, `Evidence direction: ${v.direction}`);
-  const cx = W / 2, cy = 116, r = Math.min(104, W / 2 - 60);
+  const cx = W / 2, cy = 116;
   const arc = (a0, a1) => {
     const p = (a) => [cx + r * Math.cos((a * Math.PI) / 180), cy - r * Math.sin((a * Math.PI) / 180)];
     const [x0, y0] = p(a0), [x1, y1] = p(a1);
@@ -125,7 +166,7 @@ function needle(v, W, motion) {
   add(hand, 'line', { x1: cx, y1: cy, x2: cx, y2: cy - r + 16, 'stroke-dasharray': total ? null : '4 4' });
   add(svg, 'circle', { cx, cy, r: 6, class: `v-hub v-${mark}` });
   play(motion, hand, [{ transform: 'rotate(0deg)' }, { transform: `rotate(${90 - angle}deg)` }], { duration: 600 });
-  add(svg, 'text', { x: cx, y: cy + 26, 'text-anchor': 'middle', class: 'v-strong' }, `${v.supports} for · ${v.contradicts} against`);
+  add(svg, 'text', { x: cx, y: low ? cy + 42 : cy + 26, 'text-anchor': 'middle', class: 'v-strong' }, summary);
   return svg;
 }
 
@@ -134,16 +175,35 @@ function timeline(v, W, motion) {
   const pad = 28;
   const known = v.items.filter((i) => typeof i.ageDays === 'number');
   const maxAge = Math.max(10, ...known.map((i) => i.ageDays), ...v.thresholds.map((t) => t.days * 1.25));
-  const step = niceStep(maxAge);
+  const step = niceStep(maxAge, W < 360 ? 4 : 6);
   const max = Math.ceil((maxAge * 1.08) / step) * step;
   const x = (d) => pad + (d / max) * (W - pad * 2);
+  // Item labels sit right of their mark, or left when they would leave the
+  // frame. Each goes in the lowest lane where it overlaps no other label, no
+  // stem passes through it, and its own stem crosses no label below it.
   const lanes = [];
   const placed = v.items.map((item) => {
     const px = typeof item.ageDays === 'number' ? x(item.ageDays) : W - pad;
+    let text = trunc(item.label, 18);
+    let w = measure(text, 'label');
+    let side = 'right';
+    if (px + 11 + w > W - 2) {
+      if (px - 11 - w >= 2) side = 'left';
+      else { text = fit(text, W - 2 - (px + 11), 'label'); w = measure(text, 'label'); }
+    }
+    const x0 = side === 'right' ? px - 8 : px - 11 - w, x1 = side === 'right' ? px + 11 + w : px + 8;
+    const free = (L) => (lanes[L] ?? []).every((o) => x1 + 6 < o.x0 || x0 - 6 > o.x1);
+    const clear = (L) => free(L)
+      && lanes.slice(0, L).flat().every((o) => px < o.x0 - 3 || px > o.x1 + 3)
+      && lanes.slice(L + 1).flat().every((o) => o.px < x0 - 3 || o.px > x1 + 3);
+    // Two items at the same age can never avoid each other's stems, so fall
+    // back to the first lane where the labels at least do not overlap.
     let lane = 0;
-    while (lanes[lane] !== undefined && px - lanes[lane] < 92) lane += 1;
-    lanes[lane] = px;
-    return { ...item, px, lane };
+    while (lane <= lanes.length && !clear(lane)) lane += 1;
+    if (lane > lanes.length) { lane = 0; while (!free(lane)) lane += 1; }
+    const entry = { ...item, px, lane, side, text, x0, x1 };
+    (lanes[lane] ??= []).push(entry);
+    return entry;
   });
   const H = 92 + lanes.length * 22;
   const svg = frame(W, H, `Ages on a ${v.unit} scale`);
@@ -153,17 +213,26 @@ function timeline(v, W, motion) {
     add(svg, 'line', { x1: x(d), y1: axisY, x2: x(d), y2: axisY + 4, class: 'v-axis' });
     add(svg, 'text', { x: x(d), y: axisY + 16, 'text-anchor': 'middle', class: 'v-tick' }, `${d}`);
   }
-  add(svg, 'text', { x: W - pad, y: 14, 'text-anchor': 'end', class: 'v-caption' }, v.unit.toUpperCase());
+  // Top labels: the unit caption at the left, then each threshold label right
+  // of its line (or left of it) in the first row where it fits.
+  const unit = fit(v.unit.toUpperCase(), W - pad, 'caption');
+  add(svg, 'text', { x: pad - 4, y: 14, class: 'v-caption' }, unit);
+  const taken = [{ row: 0, x0: pad - 4, x1: pad - 4 + measure(unit, 'caption') }];
   for (const t of v.thresholds) {
-    add(svg, 'line', { x1: x(t.days), y1: 18, x2: x(t.days), y2: axisY, class: 'v-threshold' });
-    add(svg, 'text', { x: x(t.days) + 4, y: x(t.days) > W * 0.55 ? 28 : 14, class: 'v-tick' }, t.label);
+    const tx = x(t.days), w = measure(t.label, 'tick');
+    const options = [];
+    for (let row = 0; row < 3; row += 1) options.push({ row, x0: tx + 4, x1: tx + 4 + w, anchor: 'start', at: tx + 4 }, { row, x0: tx - 4 - w, x1: tx - 4, anchor: 'end', at: tx - 4 });
+    const spot = options.find((o) => o.x0 >= 0 && o.x1 <= W && taken.every((u) => u.row !== o.row || o.x1 + 6 < u.x0 || o.x0 - 6 > u.x1)) ?? options[0];
+    taken.push(spot);
+    add(svg, 'line', { x1: tx, y1: 18, x2: tx, y2: axisY, class: 'v-threshold' });
+    add(svg, 'text', { x: spot.at, y: 14 + spot.row * 14, 'text-anchor': spot.anchor, class: 'v-tick' }, t.label);
   }
   placed.forEach((item, i) => {
     const y = axisY - 22 - item.lane * 22;
     const g = add(svg, 'g', { class: 'v-dot' });
     add(g, 'line', { x1: item.px, y1: y + 8, x2: item.px, y2: axisY, class: `v-stem v-${item.mark}` });
     glyphBadge(g, item.px, y, item.mark, 15);
-    add(g, 'text', { x: item.px + 11, y: y + 0.5, 'dominant-baseline': 'middle', class: 'v-label' }, trunc(item.label, 14));
+    add(g, 'text', { x: item.side === 'right' ? item.px + 11 : item.px - 11, y: y + 0.5, 'text-anchor': item.side === 'right' ? 'start' : 'end', 'dominant-baseline': 'middle', class: 'v-label' }, item.text);
     play(motion, g, [{ transform: `translateX(${pad - item.px}px)`, opacity: 0.2 }, { transform: 'translateX(0)', opacity: 1 }], { duration: 600, delay: i * 140 });
   });
   return svg;
@@ -173,16 +242,27 @@ function timeline(v, W, motion) {
 function slope(v, W, motion) {
   const n = v.base.length;
   const rowH = 22;
-  const H = n * rowH + 64;
-  const svg = frame(W, H, 'Ranking before and after each payout change');
-  const labelW = 96;
+  const ids = v.base.map((id) => trunc(id, 13));
+  const labelW = Math.min(96, Math.max(...ids.map((id) => measure(id, 'label'))) + 14);
   const panelW = (W - labelW) / v.columns.length;
+  const span = (c) => [labelW + c * panelW + 12, labelW + (c + 1) * panelW - 12];
+  // Scenario names wrap to two lines rather than being cut off.
+  const names = v.columns.map((col) => wrap(col.short ?? col.label, panelW - 8, 'label', 2));
+  const nameLines = Math.max(...names.map((l) => l.length));
+  const H = n * rowH + 50 + nameLines * 14;
+  const svg = frame(W, H, 'Ranking before and after each payout change');
   const y = (rank) => 30 + rank * rowH;
-  v.base.forEach((id, r) => add(svg, 'text', { x: labelW - 8, y: y(r) + 0.5, 'text-anchor': 'end', 'dominant-baseline': 'middle', class: 'v-label' }, trunc(id, 13)));
+  ids.forEach((id, r) => add(svg, 'text', { x: labelW - 8, y: y(r) + 0.5, 'text-anchor': 'end', 'dominant-baseline': 'middle', class: 'v-label' }, id));
+  const [a0, a1] = span(0);
+  const perPanel = measure('BASE', 'caption') + measure('AFTER', 'caption') + 8 <= a1 - a0 + 8;
+  if (!perPanel) add(svg, 'text', { x: a0 - 4, y: 14, class: 'v-caption' }, 'EACH PANEL: BASE → AFTER');
+  const longVerdict = Math.max(measure('order changed', 'tag'), measure('same order', 'tag')) <= panelW - 6;
   v.columns.forEach((col, c) => {
-    const x0 = labelW + c * panelW + 6, x1 = x0 + panelW - 30;
-    add(svg, 'text', { x: x0, y: 14, class: 'v-caption' }, 'BASE');
-    add(svg, 'text', { x: x1, y: 14, 'text-anchor': 'end', class: 'v-caption' }, 'AFTER');
+    const [x0, x1] = span(c);
+    if (perPanel) {
+      add(svg, 'text', { x: x0 - 4, y: 14, class: 'v-caption' }, 'BASE');
+      add(svg, 'text', { x: x1 + 4, y: 14, 'text-anchor': 'end', class: 'v-caption' }, 'AFTER');
+    }
     v.base.forEach((id, r) => {
       const r2 = col.order.indexOf(id);
       const moved = r2 !== r;
@@ -191,9 +271,10 @@ function slope(v, W, motion) {
       add(svg, 'circle', { cx: x1, cy: y(r2), r: 3.5, class: `v-pt v-${moved ? 'bad' : 'ok'}` });
       drawIn(motion, path, 600, c * 420);
     });
-    const short = col.short ?? col.label;
-    add(svg, 'text', { x: (x0 + x1) / 2, y: H - 22, 'text-anchor': 'middle', class: 'v-label' }, trunc(short, Math.max(10, Math.floor(panelW / 7))));
-    const verdict = add(svg, 'text', { x: (x0 + x1) / 2, y: H - 6, 'text-anchor': 'middle', class: `v-tag v-${col.changed ? 'bad' : 'ok'}` }, col.changed ? 'order changed' : 'same order');
+    const mid = (x0 + x1) / 2;
+    names[c].forEach((line, i) => add(svg, 'text', { x: mid, y: H - 22 - (names[c].length - 1 - i) * 14, 'text-anchor': 'middle', class: 'v-label' }, line));
+    const word = longVerdict ? (col.changed ? 'order changed' : 'same order') : (col.changed ? 'changed' : 'same');
+    const verdict = add(svg, 'text', { x: mid, y: H - 6, 'text-anchor': 'middle', class: `v-tag v-${col.changed ? 'bad' : 'ok'}` }, word);
     play(motion, verdict, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, delay: c * 420 + 560 });
   });
   return svg;
@@ -230,7 +311,14 @@ function bars(v, W, motion) {
 
 // ------------------------------------------------------------------- dial
 function dial(v, W, motion) {
-  const H = 128;
+  const lines = [
+    [v.flags.lowSourceCount ? 'warn' : 'ok', v.flags.lowSourceCount ? 'Few source types' : 'Several source types'],
+    [v.flags.uniformSentiment ? 'warn' : 'ok', v.flags.uniformSentiment ? 'Uniform sentiment' : 'Varied sentiment'],
+    ['info', `Confidence: ${v.confidence}`],
+  ].map(([m, text], i) => (v.score === null && i < 2 ? ['skip', `${text} (not assessed)`] : [m, text]));
+  // Beside the ring when the longest line fits; otherwise stacked below it.
+  const beside = 154 + Math.max(...lines.map(([, t]) => measure(t, 'label'))) <= W - 4;
+  const H = beside ? 128 : 124 + lines.length * 26;
   const svg = frame(W, H, v.score === null ? 'No score' : `Heuristic score ${v.score} of 100`);
   const cx = 64, cy = 64, r = 46;
   const mark = v.score === null ? 'skip' : v.flags.lowSourceCount || v.flags.uniformSentiment ? 'warn' : 'ok';
@@ -242,17 +330,13 @@ function dial(v, W, motion) {
   } else {
     add(svg, 'circle', { cx, cy, r, class: 'v-ring v-dashed' });
   }
-  add(svg, 'text', { x: cx, y: cy - 2, 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'v-big' }, v.score === null ? '—' : String(v.score));
-  add(svg, 'text', { x: cx, y: cy + 20, 'text-anchor': 'middle', class: 'v-tick' }, v.score === null ? 'no score' : 'of 100');
-  const lines = [
-    [v.flags.lowSourceCount ? 'warn' : 'ok', v.flags.lowSourceCount ? 'Few source types' : 'Several source types'],
-    [v.flags.uniformSentiment ? 'warn' : 'ok', v.flags.uniformSentiment ? 'Uniform sentiment' : 'Varied sentiment'],
-    ['info', `Confidence: ${v.confidence}`],
-  ];
+  add(svg, 'text', { x: cx, y: cy - 4, 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'v-big' }, v.score === null ? '—' : String(v.score));
+  add(svg, 'text', { x: cx, y: cy + 22, 'text-anchor': 'middle', class: 'v-tick' }, v.score === null ? 'no score' : 'of 100');
   lines.forEach(([m, text], i) => {
     const g = add(svg, 'g', {});
-    glyphBadge(g, 140, 34 + i * 28, v.score === null && i < 2 ? 'skip' : m, 15);
-    add(g, 'text', { x: 154, y: 34.5 + i * 28, 'dominant-baseline': 'middle', class: 'v-label' }, v.score === null && i < 2 ? `${text} (not assessed)` : text);
+    const bx = beside ? 140 : 26, by = beside ? 34 + i * 28 : 134 + i * 26;
+    glyphBadge(g, bx, by, m, 15);
+    add(g, 'text', { x: bx + 14, y: by + 0.5, 'dominant-baseline': 'middle', class: 'v-label' }, fit(text, W - bx - 16, 'label'));
     play(motion, g, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, delay: 600 + i * 120 });
   });
   return svg;
@@ -285,7 +369,7 @@ function chain(v, W, motion) {
     if (state === 'bad' && v.kind === 'content') {
       // The entry's content no longer matches its own hash: mark the block, not the link.
       add(g, 'path', { d: `M ${x(i) + bw - 22} 24 l 14 14 M ${x(i) + bw - 8} 24 l -14 14`, class: 'v-cross' });
-      add(svg, 'text', { x: x(i) + bw / 2, y: 76, 'text-anchor': 'middle', class: 'v-tag v-bad' }, 'content changed');
+      add(svg, 'text', { x: x(i) + bw / 2, y: 12, 'text-anchor': 'middle', class: 'v-tag v-bad' }, fit('content changed', bw + gap, 'tag'));
     }
     play(motion, g, [{ opacity: 0.25 }, { opacity: 1 }], { duration: 240, delay: i * 160 });
     if (v.anchorIndex === i) {
@@ -305,31 +389,40 @@ function chain(v, W, motion) {
 function budget(v, W, motion) {
   const total = v.spent + v.next;
   const near = Math.abs(v.ceiling - total) < v.ceiling * 0.05;
-  const H = near ? 132 : 76;
-  const svg = frame(W, H, `Spend ${total.toFixed(4)} of a ${v.ceiling} ceiling`);
+  const svg = frame(W, 0, `Spend ${total.toFixed(4)} of a ${v.ceiling} ceiling`);
   const pad = 10;
-  const drawBar = (y, lo, hi, caption, digits) => {
+  let top = 0;
+  const drawBar = (lo, hi, caption, digits) => {
+    const lines = wrap(caption, W - pad * 2, 'caption', 3);
+    lines.forEach((line, i) => add(svg, 'text', { x: pad, y: top + 14 + i * 14, class: 'v-caption' }, line));
+    const y = top + 22 + (lines.length - 1) * 14;
     const x = (val) => pad + ((val - lo) / (hi - lo)) * (W - pad * 2);
-    add(svg, 'text', { x: pad, y: y - 8, class: 'v-caption' }, caption);
     add(svg, 'rect', { x: pad, y, width: W - pad * 2, height: 16, class: 'v-track' });
     const spent = add(svg, 'rect', { x: pad, y, width: Math.max(0, x(Math.min(v.spent, hi)) - pad), height: 16, class: 'v-bar v-skip' });
     const nx = x(Math.max(lo, v.spent));
     const nextBar = add(svg, 'rect', { x: nx, y, width: Math.max(2, x(Math.min(total, hi)) - nx), height: 16, class: `v-bar v-${v.allowed ? 'ok' : 'bad'}` });
     const cx = x(v.ceiling);
     add(svg, 'line', { x1: cx, y1: y - 4, x2: cx, y2: y + 20, class: 'v-ceiling' });
-    add(svg, 'text', { x: Math.min(cx, W - pad), y: y + 32, 'text-anchor': cx > W - 90 ? 'end' : 'middle', class: 'v-tick' }, `ceiling $${v.ceiling.toFixed(digits)}`);
+    const label = `ceiling $${v.ceiling.toFixed(digits)}`;
+    const half = measure(label, 'tick') / 2;
+    const anchor = cx + half > W - pad ? 'end' : cx - half < pad ? 'start' : 'middle';
+    add(svg, 'text', { x: anchor === 'end' ? Math.min(cx, W - pad) : anchor === 'start' ? Math.max(cx, pad) : cx, y: y + 32, 'text-anchor': anchor, class: 'v-tick' }, label);
     spent.style.transformBox = 'view-box';
     spent.style.transformOrigin = `${pad}px 0px`;
     play(motion, spent, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 600 });
     play(motion, nextBar, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 600 });
+    top = y + 44;
   };
-  drawBar(22, 0, Math.max(v.ceiling, total) * 1.04, `FULL BUDGET · $0 TO $${(Math.max(v.ceiling, total) * 1.04).toFixed(2)}`, 2);
+  drawBar(0, Math.max(v.ceiling, total) * 1.04, `FULL BUDGET · $0 TO $${(Math.max(v.ceiling, total) * 1.04).toFixed(2)}`, 2);
   if (near) {
     const span = Math.max(v.next * 6, v.ceiling * 0.002);
     const lo = Math.max(0, Math.min(v.spent, v.ceiling) - span);
     const hi = Math.max(v.ceiling, total) + span * 0.35;
-    drawBar(88, lo, hi, `ZOOMED · $${lo.toFixed(4)} TO $${hi.toFixed(4)} (THE NEXT CALL IS TOO SMALL TO SEE ABOVE)`, 4);
+    drawBar(lo, hi, `ZOOMED · $${lo.toFixed(4)} TO $${hi.toFixed(4)} (THE NEXT CALL IS TOO SMALL TO SEE ABOVE)`, 4);
   }
+  const H = top + (near ? 0 : 10);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('height', String(H));
   return svg;
 }
 

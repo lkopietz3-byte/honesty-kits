@@ -223,6 +223,8 @@ pre.code { margin: 0; overflow: auto; background: var(--code-bg); border: 1px so
 .viz-svg .v-hub { fill: var(--c); }
 .viz-svg .v-axis { stroke: var(--rule); stroke-width: 1; }
 .viz-svg .v-threshold { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; }
+/* A halo in the panel color, so threshold lines pass behind the labels. */
+.viz-timeline .v-label, .viz-timeline .v-tick { paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
 .viz-svg .v-stem { stroke: var(--c); stroke-width: 1; opacity: 0.6; }
 .viz-svg .v-pt { fill: var(--muted); }
 .viz-svg .v-pt.v-ok, .viz-svg .v-pt.v-bad { fill: var(--c); }
