@@ -1,9 +1,13 @@
-// Move kits to new published versions in both places the site pins them:
-// demos.mjs (what the browser loads from jsDelivr) and package.json
-// devDependencies (what the tests run). The test suite asserts they match.
+// Move kits to new published versions everywhere the site pins them:
+// demos.mjs (what the page loads), package.json devDependencies (what the
+// tests run and the build copies) and package-lock.json (what `npm ci`
+// installs in the deploy). The test suite asserts the first two match; this
+// runs `npm install` to refresh the lockfile and node_modules, then checks
+// npm's signatures.
 //
 //   node tools/bump-kits.mjs grounding-kit@0.2.1 trust-core@0.2.1 ...
 import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const specs = process.argv.slice(2).map((s) => {
   const at = s.lastIndexOf('@');
@@ -24,3 +28,6 @@ for (const { id, version } of specs) {
 }
 writeFileSync('demos.mjs', demos);
 writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+execFileSync(npm, ['install', '--no-fund', '--no-audit'], { stdio: 'inherit' });
+execFileSync(npm, ['audit', 'signatures'], { stdio: 'inherit' });

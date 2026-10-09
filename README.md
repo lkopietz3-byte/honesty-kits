@@ -76,7 +76,7 @@ npm test           # runs every example and every generated snippet against the 
 node tools/build.mjs && npx serve dist
 ```
 
-`node tools/bump-kits.mjs grounding-kit@0.2.1 ...` moves kits to new releases in both places the site pins them.
+`node tools/bump-kits.mjs grounding-kit@0.2.1 ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
 
 `node tools/demo-gif.mjs --playwright-root <path to playwright>` re-records `docs/demo.gif` from the live site, and `tools/og.mjs` re-captures the social card.
 
