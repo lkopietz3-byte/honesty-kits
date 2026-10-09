@@ -143,12 +143,12 @@ function useInput(input) {
   run();
 }
 
+const linkFor = (input) => `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, input)}`;
 /** A link that reopens the current kit with the current (last valid) input. */
 function exampleLink() {
   const { input, errors } = readInput();
   const use = errors.length ? state.input : input;
-  if (!use) return null;
-  return `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, use)}`;
+  return use ? linkFor(use) : null;
 }
 
 function renderExamples() {
@@ -546,6 +546,34 @@ function readHash() {
 $('copy-link').addEventListener('click', (event) => {
   const link = exampleLink();
   if (link) copyText(link, event.currentTarget, $('fields'));
+});
+// Share on phones: the system share sheet when there is one, else copy.
+$('share-link').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  // Share the verdict on screen with the input that produced it, so the text
+  // and the link always agree (even mid-edit, before the check reruns).
+  const shown = state.result && state.input;
+  const link = shown ? linkFor(state.input) : exampleLink();
+  if (!link) return;
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title: `${state.kit.name} · honesty kits`, text: shown ? state.result.headline : state.kit.question, url: link });
+      return;
+    } catch (error) {
+      if (error?.name === 'AbortError') return; // closed the sheet
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    button.classList.add('done');
+    announce('Link to this example copied to the clipboard');
+    setTimeout(() => button.classList.remove('done'), 1600);
+  } catch {
+    // No share sheet and no clipboard: put the link in the address bar (the
+    // browser's own share and copy then work) and show it, selectable.
+    history.replaceState(null, '', link);
+    window.prompt('Copy this link to share the example:', link);
+  }
 });
 addEventListener('hashchange', () => {
   const { raw, kit, shared } = readHash();

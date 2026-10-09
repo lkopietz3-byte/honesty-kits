@@ -84,6 +84,12 @@ a { color: var(--accent); }
 .btn:not(.btn-ink):hover { background: var(--sheet); }
 .btn-small { min-height: 30px; padding: 0 10px; font-size: 0.75rem; border-color: var(--rule); }
 .btn:disabled { opacity: 0.45; cursor: default; }
+/* Phones and tablets get a Share button in the top bar (the pane header with
+   Copy link is hidden there). The check mark confirms a copied link. */
+.share-phone { display: none; }
+.share-phone svg { width: 18px; height: 18px; flex: none; }
+.share-phone .icon-done, .share-phone.done .icon-share { display: none; }
+.share-phone.done .icon-done { display: block; }
 
 /* ---------- kit rail ---------- */
 .rail { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 2px; }
@@ -283,7 +289,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
   .rail { display: none; }
   .picker { display: flex; align-items: center; gap: 10px; }
   .picker label { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-  .picker select { min-height: 40px; padding: 0 10px; border: 1px solid var(--ink); border-radius: 3px; background: var(--sheet); max-width: 100%; }
+  .picker select { min-height: 40px; padding: 0 10px; border: 1px solid var(--ink); border-radius: 3px; background: var(--sheet); max-width: 100%; flex: 1 1 auto; min-width: 0; }
 }
 
 /* ---------- phones and narrow tablets: Input / Result tabs, still one screen ---------- */
@@ -327,12 +333,23 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
   .pane-foot { padding-block: 4px; }
   .pane-note { display: none; }
 }
+@media (max-width: 860px) {
+  .share-phone { display: inline-flex; }
+}
+/* Compact header: icon-only Share and the short agent label. */
+@media (max-width: 640px) {
+  .share-phone { padding: 0 12px; }
+  .share-label, .open-agent-long { display: none; }
+}
+@media (min-width: 641px) {
+  .open-agent-short { display: none; }
+}
 @media (max-width: 480px) {
   .top-actions .btn-quiet { display: none; }
-  .open-agent-long { display: none; }
 }
-@media (min-width: 481px) {
-  .open-agent-short { display: none; }
+/* The smallest phones: the logo mark alone (the link keeps its name). */
+@media (max-width: 340px) {
+  .brand-name { display: none; }
 }
 </style>
 
@@ -348,6 +365,11 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
     </a>
     <p class="tagline">Small, dependency-free checks for the claims your AI product makes. Pick one and try it on real examples.</p>
     <nav class="top-actions" aria-label="Project">
+      <button id="share-link" class="btn share-phone" type="button" aria-label="Share this example" title="Share this example">
+        <svg class="icon-share" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"></path><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg>
+        <svg class="icon-done" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17.5 19 7"></path></svg>
+        <span class="share-label">Share</span>
+      </button>
       <button id="open-agent" class="btn" type="button"><span class="open-agent-long">Add to your AI agent</span><span class="open-agent-short">Add to agent</span></button>
       <a class="btn btn-quiet" href="https://github.com/lkopietz3-byte/honesty-kits" target="_blank" rel="noopener">GitHub</a>
     </nav>
