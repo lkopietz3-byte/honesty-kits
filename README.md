@@ -5,7 +5,7 @@ Small, dependency-free TypeScript checks for the claims your AI product makes.
 [![The playground: a draft with a bad citation gets fixed, a ranking moves when a partner pays more, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
 
 **[Try every kit in your browser →](https://lkopietz3-byte.github.io/honesty-kits/)**
-Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm packages in your browser; nothing you type is sent anywhere.
+Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy blocks it from sending anything you type.
 
 ## The kits
 
@@ -68,13 +68,15 @@ claude mcp add honesty-mcp -- npx -y honesty-mcp
 
 ## This repository
 
-The playground is static HTML and two ES modules, with no build step beyond wrapping the page:
+The playground is static HTML and three ES modules, with no bundler. `tools/build.mjs` wraps the page and copies in each kit's published files from `node_modules`; `npm ci` installs them from the lockfile, so they match the npm tarballs byte for byte. It also copies the vendored fonts (`static/fonts`, SIL Open Font License) and adds the Content-Security-Policy. The deploy workflow runs `npm audit signatures` before building.
 
 ```bash
-npm install        # installs the exact kit versions the page loads
-npm test           # runs every example and every generated snippet against the real kits
+npm ci             # installs the exact kit versions the page serves
+npm test           # runs every example and every generated snippet against the real kits, then checks the build
 node tools/build.mjs && npx serve dist
 ```
+
+`node tools/bump-kits.mjs grounding-kit@0.2.1 ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
 
 `node tools/demo-gif.mjs --playwright-root <path to playwright>` re-records `docs/demo.gif` from the live site, and `tools/og.mjs` re-captures the social card.
 
