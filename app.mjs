@@ -566,9 +566,10 @@ $('share-link').addEventListener('click', async (event) => {
     announce('Link to this example copied to the clipboard');
     setTimeout(() => button.classList.remove('done'), 1600);
   } catch {
-    setPane('input');
-    $('copy-link').focus();
-    announce('Could not copy automatically. Use Copy link in the input pane.');
+    // No share sheet and no clipboard: put the link in the address bar (the
+    // browser's own share and copy then work) and show it, selectable.
+    history.replaceState(null, '', link);
+    window.prompt('Copy this link to share the example:', link);
   }
 });
 addEventListener('hashchange', () => {
