@@ -72,3 +72,19 @@ test('timeline: items at the same age, or with unknown ages, still get placed', 
     for (const width of WIDTHS) check({ type: 'timeline', unit: 'days since last reviewed', items: list, thresholds }, width, `timeline case ${i} at ${width}px`);
   }
 });
+
+test('graphics survive empty and minimal inputs', { timeout: 5000 }, () => {
+  const cases = [
+    { type: 'threads', evidenceIds: [], sentences: [] },
+    { type: 'needle', supports: 0, contradicts: 0, direction: 'none' },
+    { type: 'timeline', unit: 'days', items: [], thresholds: [] },
+    { type: 'slope', base: [], columns: [{ label: 'nobody pays anything', short: 'Nobody pays', order: [], changed: false }] },
+    { type: 'slope', base: ['only-one'], columns: [] },
+    { type: 'bars', bars: [], baseline: null, percent: false, unit: 'ms' },
+    { type: 'bars', bars: [{ label: 'none yet', value: null }], baseline: null, percent: true, unit: '%' },
+    { type: 'dial', score: null, flags: { lowSourceCount: false, uniformSentiment: false }, confidence: 'insufficient' },
+    { type: 'chain', entries: [], brokenAt: null, kind: null, anchorIndex: null },
+    { type: 'budget', spent: 0, next: 0, ceiling: 1, allowed: true },
+  ];
+  for (const viz of cases) for (const width of WIDTHS) check(viz, width, `${viz.type} (minimal) at ${width}px`);
+});

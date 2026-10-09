@@ -243,12 +243,12 @@ function slope(v, W, motion) {
   const n = v.base.length;
   const rowH = 22;
   const ids = v.base.map((id) => trunc(id, 13));
-  const labelW = Math.min(96, Math.max(...ids.map((id) => measure(id, 'label'))) + 14);
-  const panelW = (W - labelW) / v.columns.length;
+  const labelW = Math.min(96, Math.max(50, ...ids.map((id) => measure(id, 'label'))) + 14);
+  const panelW = (W - labelW) / Math.max(1, v.columns.length);
   const span = (c) => [labelW + c * panelW + 12, labelW + (c + 1) * panelW - 12];
   // Scenario names wrap to two lines rather than being cut off.
   const names = v.columns.map((col) => wrap(col.short ?? col.label, panelW - 8, 'label', 2));
-  const nameLines = Math.max(...names.map((l) => l.length));
+  const nameLines = Math.max(1, ...names.map((l) => l.length));
   const H = n * rowH + 50 + nameLines * 14;
   const svg = frame(W, H, 'Ranking before and after each payout change');
   const y = (rank) => 30 + rank * rowH;
@@ -287,7 +287,7 @@ function bars(v, W, motion) {
   const H = rows.length * rowH + 30;
   const svg = frame(W, H, `Values on a ${v.percent ? '0 to 100 percent' : 'zero-based'} scale`);
   const labelW = 92, valueW = 72;
-  const max = v.percent ? 1 : Math.max(...rows.map((r) => r.value ?? 0)) * 1.1 || 1;
+  const max = v.percent ? 1 : Math.max(0, ...rows.map((r) => r.value ?? 0)) * 1.1 || 1;
   const x = (val) => labelW + (val / max) * (W - labelW - valueW);
   add(svg, 'line', { x1: labelW, y1: 4, x2: labelW, y2: H - 22, class: 'v-axis' });
   add(svg, 'text', { x: labelW, y: H - 6, class: 'v-tick' }, v.percent ? '0%' : `0 ${v.unit}`);
