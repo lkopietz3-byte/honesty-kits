@@ -196,11 +196,12 @@ function timeline(v, W, motion) {
     const clear = (L) => free(L)
       && lanes.slice(0, L).flat().every((o) => px < o.x0 - 3 || px > o.x1 + 3)
       && lanes.slice(L + 1).flat().every((o) => o.px < x0 - 3 || o.px > x1 + 3);
-    // Two items at the same age can never avoid each other's stems, so fall
-    // back to the first lane where the labels at least do not overlap.
+    // Stem avoidance is quadratic, so it applies to readable charts only; two
+    // items at the same age can never avoid each other's stems either. Both
+    // fall back to the first lane where the labels at least do not overlap.
     let lane = 0;
-    while (lane <= lanes.length && !clear(lane)) lane += 1;
-    if (lane > lanes.length) { lane = 0; while (!free(lane)) lane += 1; }
+    if (v.items.length <= 60) while (lane <= lanes.length && !clear(lane)) lane += 1;
+    if (v.items.length > 60 || lane > lanes.length) { lane = 0; while (!free(lane)) lane += 1; }
     const entry = { ...item, px, lane, side, text, x0, x1 };
     (lanes[lane] ??= []).push(entry);
     return entry;

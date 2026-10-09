@@ -88,3 +88,10 @@ test('graphics survive empty and minimal inputs', { timeout: 5000 }, () => {
   ];
   for (const viz of cases) for (const width of WIDTHS) check(viz, width, `${viz.type} (minimal) at ${width}px`);
 });
+
+test('timeline: a very long list still lays out quickly', { timeout: 5000 }, () => {
+  const items = Array.from({ length: 2000 }, (_, i) => ({ label: `page-${i}`, ageDays: (i * 37) % 400, mark: 'ok' }));
+  const started = performance.now();
+  check({ type: 'timeline', unit: 'days since last reviewed', items, thresholds: [{ days: 30, label: 'warn 30d' }, { days: 90, label: 'stale 90d' }] }, 700, 'timeline 2000 items');
+  assert.ok(performance.now() - started < 1500, `2000 items took ${(performance.now() - started).toFixed(0)} ms`);
+});

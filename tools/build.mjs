@@ -45,7 +45,8 @@ if (!googleFonts.test(page)) throw new Error('src/page.html font links changed: 
 const fontCss = readFileSync(new URL('static/fonts/fonts.css', root), 'utf8');
 const bodyFont = fontCss.match(/\/\* latin \*\/\s*@font-face \{\s*font-family: 'Schibsted Grotesk';[^}]*?url\((fonts\/[^)]+\.woff2)\)/);
 if (!bodyFont) throw new Error('no latin Schibsted Grotesk file in static/fonts/fonts.css');
-page = page.replace(googleFonts, `<link rel="preload" href="./${bodyFont[1]}" as="font" type="font/woff2" crossorigin>\n<style>${fontCss.replace(/^\/\*.*?\*\/\n/, '')}</style>\n`);
+const fontPreload = `<link rel="preload" href="./${bodyFont[1]}" as="font" type="font/woff2" crossorigin>`;
+page = page.replace(googleFonts, `<style>${fontCss.replace(/^\/\*.*?\*\/\n/, '')}</style>\n`);
 mkdirSync(new URL('fonts/', out), { recursive: true });
 for (const file of readdirSync(new URL('static/fonts/', root))) {
   if (/\.(woff2|txt)$/.test(file)) copyFileSync(new URL(`static/fonts/${file}`, root), new URL(`fonts/${file}`, out));
@@ -88,6 +89,7 @@ const html = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="kit-base" content="./kits/">
+${fontPreload}
 ${preload}
 <meta property="og:title" content="Honesty Kits">
 <meta property="og:type" content="website">
