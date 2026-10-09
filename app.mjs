@@ -143,12 +143,12 @@ function useInput(input) {
   run();
 }
 
+const linkFor = (input) => `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, input)}`;
 /** A link that reopens the current kit with the current (last valid) input. */
 function exampleLink() {
   const { input, errors } = readInput();
   const use = errors.length ? state.input : input;
-  if (!use) return null;
-  return `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, use)}`;
+  return use ? linkFor(use) : null;
 }
 
 function renderExamples() {
@@ -550,11 +550,14 @@ $('copy-link').addEventListener('click', (event) => {
 // Share on phones: the system share sheet when there is one, else copy.
 $('share-link').addEventListener('click', async (event) => {
   const button = event.currentTarget;
-  const link = exampleLink();
+  // Share the verdict on screen with the input that produced it, so the text
+  // and the link always agree (even mid-edit, before the check reruns).
+  const shown = state.result && state.input;
+  const link = shown ? linkFor(state.input) : exampleLink();
   if (!link) return;
   if (typeof navigator.share === 'function') {
     try {
-      await navigator.share({ title: `${state.kit.name} · honesty kits`, text: state.result?.headline ?? state.kit.question, url: link });
+      await navigator.share({ title: `${state.kit.name} · honesty kits`, text: shown ? state.result.headline : state.kit.question, url: link });
       return;
     } catch (error) {
       if (error?.name === 'AbortError') return; // closed the sheet
