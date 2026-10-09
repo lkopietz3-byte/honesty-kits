@@ -547,6 +547,30 @@ $('copy-link').addEventListener('click', (event) => {
   const link = exampleLink();
   if (link) copyText(link, event.currentTarget, $('fields'));
 });
+// Share on phones: the system share sheet when there is one, else copy.
+$('share-link').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const link = exampleLink();
+  if (!link) return;
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title: `${state.kit.name} · honesty kits`, text: state.result?.headline ?? state.kit.question, url: link });
+      return;
+    } catch (error) {
+      if (error?.name === 'AbortError') return; // closed the sheet
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    button.classList.add('done');
+    announce('Link to this example copied to the clipboard');
+    setTimeout(() => button.classList.remove('done'), 1600);
+  } catch {
+    setPane('input');
+    $('copy-link').focus();
+    announce('Could not copy automatically. Use Copy link in the input pane.');
+  }
+});
 addEventListener('hashchange', () => {
   const { raw, kit, shared } = readHash();
   if (raw === 'add-to-agent') return openAgent();
