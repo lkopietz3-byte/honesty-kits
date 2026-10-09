@@ -1,5 +1,5 @@
 // One demo per kit. Each demo receives the kit's real published module (loaded
-// from jsDelivr in the browser, or from node_modules in tests) and the user's
+// from the site or jsDelivr in the browser, from node_modules in tests) and the user's
 // edited input, calls the kit's own exports, and returns a plain result:
 //
 //   { tone: 'pass' | 'fail' | 'warn' | 'info', headline, summary?, rows, viz?, raw }
@@ -102,7 +102,7 @@ export const KITS = [
   // ---------------------------------------------------------------- grounding
   {
     id: 'grounding-kit',
-    version: '0.2.0',
+    version: '0.2.1',
     group: GROUPS[0],
     name: 'Citations',
     question: 'Does each sentence cite evidence that actually says it?',
@@ -188,7 +188,7 @@ if (!result.isClean) process.exitCode = 1;
   // --------------------------------------------------------------- provenance
   {
     id: 'provenance-kit',
-    version: '0.2.0',
+    version: '0.2.1',
     group: GROUPS[0],
     name: 'Certainty wording',
     question: 'Does the copy sound more certain than its source allows?',
@@ -252,7 +252,7 @@ if (offenses.length > 0) process.exitCode = 1;
   // ------------------------------------------------------------ corroboration
   {
     id: 'corroboration-kit',
-    version: '0.2.0',
+    version: '0.2.1',
     group: GROUPS[0],
     name: 'Evidence strength',
     question: 'How strong is the evidence for a claim, and which way does it point?',
@@ -334,7 +334,7 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
   // ---------------------------------------------------------- claims-registry
   {
     id: 'claims-registry-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[1],
     name: 'Claims on your site',
     question: 'Is every public claim still backed by evidence someone checked recently?',
@@ -409,7 +409,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------------- freshness
   {
     id: 'freshness-kit',
-    version: '0.2.0',
+    version: '0.2.1',
     group: GROUPS[1],
     name: 'Freshness labels',
     question: 'How old is this information, and what should its label say?',
@@ -485,7 +485,7 @@ if (stale > 0) process.exitCode = 1;
   // ------------------------------------------------------- payout-invariance
   {
     id: 'payout-invariance-kit',
-    version: '0.2.0',
+    version: '0.2.1',
     group: GROUPS[2],
     name: 'Paid placement',
     question: 'Would your rankings change if a partner paid you more?',
@@ -562,7 +562,7 @@ if (!result.passed) process.exitCode = 1;
   // ----------------------------------------------------- mutation-invariance
   {
     id: 'mutation-invariance-kit',
-    version: '0.2.0',
+    version: '0.2.1',
     group: GROUPS[2],
     name: 'Hidden factors',
     question: 'Does a decision change when a field it should ignore changes?',

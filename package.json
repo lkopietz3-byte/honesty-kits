@@ -11,16 +11,16 @@
     "advice-ledger-kit": "0.2.0",
     "agent-receipt-kit": "0.2.0",
     "audit-chain-kit": "0.2.0",
-    "claims-registry-kit": "0.3.0",
-    "corroboration-kit": "0.2.0",
+    "claims-registry-kit": "0.3.1",
+    "corroboration-kit": "0.2.1",
     "cost-governor-kit": "0.2.0",
-    "freshness-kit": "0.2.0",
+    "freshness-kit": "0.2.1",
     "gifenc": "1.0.3",
-    "grounding-kit": "0.2.0",
-    "mutation-invariance-kit": "0.2.0",
-    "payout-invariance-kit": "0.2.0",
+    "grounding-kit": "0.2.1",
+    "mutation-invariance-kit": "0.2.1",
+    "payout-invariance-kit": "0.2.1",
     "pngjs": "7.0.0",
-    "provenance-kit": "0.2.0",
+    "provenance-kit": "0.2.1",
     "trust-core": "0.2.0"
   }
 }

@@ -23,6 +23,10 @@ jobs:
           cache: npm
       - name: Install the pinned kit versions
         run: npm ci --no-audit
+      # The site serves these exact files, so check npm's registry signatures
+      # (and provenance attestations where the package has them) first.
+      - name: Verify npm signatures
+        run: npm audit signatures
       - name: Test before publishing
         run: npm test
       - name: Build dist/

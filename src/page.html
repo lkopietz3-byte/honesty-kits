@@ -299,8 +299,10 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
   .panes { grid-template-columns: minmax(0, 1fr); }
   body[data-pane="result"] #input-pane, body[data-pane="input"] #result-pane { display: none; }
   .kit-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  #input-pane .pane-head { display: none; }
-  #result-pane > .pane-head { display: none; }
+  /* The tabs replace the pane headers on phones. Keep the h2s for screen
+     readers (heading order h1 > h2 > h3) and hide the rest. */
+  #input-pane .pane-head, #result-pane > .pane-head { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  #input-pane .pane-head > :not(h2), #result-pane > .pane-head > :not(.result-title), #result-pane .result-title > :not(h2) { display: none; }
   .install, .foot-links a[data-npm] { display: none; }
   .pane-foot { flex-wrap: nowrap; gap: 8px; }
   .pane-foot .pane-actions { margin-left: 0; }
@@ -380,7 +382,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
             </svg>
             <h2 id="result-title">Result</h2>
           </div>
-          <span class="pane-note" id="timing">Loading the kit from npm…</span>
+          <span class="pane-note" id="timing">Loading the kit…</span>
           <div class="pane-actions">
             <button class="btn btn-small" type="button" id="copy-report" disabled>Copy report</button>
             <button class="btn btn-small" type="button" id="view-code" aria-pressed="false" disabled>Use it in your code</button>
@@ -389,7 +391,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
         <div id="result" class="result" aria-live="polite">
           <div class="verdict">
             <div class="verdict-top"><span class="tone tone-loading"><span class="glyph mark-info" aria-hidden="true">…</span>Loading</span></div>
-            <h3>Fetching the published kit from npm.</h3>
+            <h3>Loading the published kit.</h3>
           </div>
         </div>
         <div id="code-view" class="code-view" hidden></div>
@@ -409,11 +411,11 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
     </div>
     <div class="snippet">
       <span class="snippet-label" id="cc-label">Claude Code</span>
-      <div class="snippet-box"><pre id="cc-cmd" aria-labelledby="cc-label"></pre><button class="copy" type="button" data-copy="cc-cmd">Copy</button></div>
+      <div class="snippet-box"><pre id="cc-cmd" aria-labelledby="cc-label" tabindex="0"></pre><button class="copy" type="button" data-copy="cc-cmd">Copy</button></div>
     </div>
     <div class="snippet">
       <span class="snippet-label" id="json-label">Any other MCP client (mcpServers config)</span>
-      <div class="snippet-box"><pre id="json-cfg" aria-labelledby="json-label"></pre><button class="copy" type="button" data-copy="json-cfg">Copy</button></div>
+      <div class="snippet-box"><pre id="json-cfg" aria-labelledby="json-label" tabindex="0"></pre><button class="copy" type="button" data-copy="json-cfg">Copy</button></div>
     </div>
     <p>Published as <a href="https://www.npmjs.com/package/honesty-mcp" target="_blank" rel="noopener">honesty-mcp on npm</a> and listed in the official MCP registry. Buttons for Cursor and VS Code open that app if it is installed.</p>
     <button class="btn dialog-close" type="button" id="close-agent">Close</button>

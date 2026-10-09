@@ -1,5 +1,6 @@
-// Playground UI. Loads each kit's published files from jsDelivr (a mirror of
-// npm), runs the demo from demos.mjs against it, and renders the result, its
+// Playground UI. Loads each kit's published npm files (served by the site
+// itself, or from jsDelivr outside the built site), runs the demo from
+// demos.mjs against it, and renders the result, its
 // graphic, a copyable report and the code to run the same check in CI.
 import { GROUPS, KITS, decodeExample, encodeExample, formatJson, mcpLinks, reportMarkdown } from './demos.mjs';
 import { renderViz } from './viz.mjs';
@@ -28,11 +29,17 @@ const TONE = {
   loading: { label: 'Loading', mark: 'info' },
 };
 
-const cdnUrl = (kit) => `https://cdn.jsdelivr.net/npm/${kit.id}@${kit.version}/dist/index.js`;
+// The built site serves each kit's published npm files itself (see
+// tools/build.mjs) and says so with <meta name="kit-base">. Anywhere else (the
+// raw page, an artifact preview) the same files come from jsDelivr.
+const KIT_BASE = document.querySelector('meta[name="kit-base"]')?.content;
+const kitUrl = (kit) => KIT_BASE
+  ? new URL(`${kit.id}@${kit.version}/index.js`, new URL(KIT_BASE, document.baseURI)).href
+  : `https://cdn.jsdelivr.net/npm/${kit.id}@${kit.version}/dist/index.js`;
 const modules = new Map();
 function loadKit(kit) {
   if (!modules.has(kit.id)) {
-    const pending = import(cdnUrl(kit));
+    const pending = import(kitUrl(kit));
     pending.catch(() => modules.delete(kit.id));
     modules.set(kit.id, pending);
   }
@@ -317,7 +324,7 @@ function setActions(enabled) {
 function showLoading(kit) {
   $('timing').textContent = 'Loading…';
   setActions(false);
-  setResult(verdictBlock('loading', `Fetching ${kit.id}@${kit.version} from npm.`, 'It runs in your browser. Nothing you type is sent anywhere.'));
+  setResult(verdictBlock('loading', `Loading ${kit.id}@${kit.version}, the published npm build.`, 'It runs in your browser. Nothing you type is sent anywhere.'));
 }
 
 function showOffline(kit) {
@@ -326,7 +333,7 @@ function showOffline(kit) {
   const retry = el('button', { type: 'button', className: 'btn retry', textContent: 'Try again' });
   retry.addEventListener('click', () => run());
   setResult(
-    verdictBlock('offline', `Could not load ${kit.id} from jsDelivr.`, 'Check your connection or any content blocker, then try again. You can also install it and run it locally.'),
+    verdictBlock('offline', `Could not load ${kit.id}.`, 'Check your connection or any content blocker, then try again. You can also install it and run it locally.'),
     el('div', { className: 'result-body' }, retry, limitNote(kit)));
 }
 
@@ -473,7 +480,7 @@ function renderFoot() {
   npmLink.setAttribute('data-npm', '');
   $('foot').replaceChildren(
     el('span', { className: 'install' }, code, copy),
-    el('span', { className: 'foot-note', textContent: `Running ${kit.id}@${kit.version} from npm, in your browser.` }),
+    el('span', { className: 'foot-note', textContent: `Running the published ${kit.id}@${kit.version} in your browser.` }),
     el('span', { className: 'foot-links' },
       el('a', { href: `https://github.com/lkopietz3-byte/${kit.id}#readme`, target: '_blank', rel: 'noopener', textContent: 'Docs' }),
       npmLink));
