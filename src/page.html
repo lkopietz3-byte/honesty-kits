@@ -4,6 +4,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
 <style>
+/* Arial resized to Schibsted Grotesk's measured width and line metrics, so
+   the text barely moves when the web font arrives. */
+@font-face { font-family: 'Schibsted Fallback'; src: local('Arial'), local('Arial MT'); size-adjust: 102%; ascent-override: 95%; descent-override: 25%; line-gap-override: 0%; }
 /* Layout: a proof desk. Kit rail | the input sheet | the result proof, framed with printer's crop marks.
    One screen at every size: a rail on wide screens, a kit picker on mid widths, Input/Result tabs on phones. */
 :root {
@@ -26,7 +29,7 @@
   --code-bg: #F1F4F6;
   --mark-bg: #FFE9A8;
   --sheet-lift: 0 6px 16px rgb(15 26 33 / 0.10);
-  --font-ui: 'Schibsted Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ui: 'Schibsted Grotesk', 'Schibsted Fallback', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 0.9375rem;
@@ -101,11 +104,15 @@ a { color: var(--accent); }
 
 /* ---------- work area ---------- */
 .work { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+/* Only the panes flex; the rows above keep their size (the phone tabs were
+   being squeezed to 31px, clipping their 44px buttons). */
+.work > :not(.panes) { flex: none; }
 .kit-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px 24px; flex-wrap: wrap; }
 .kit-head-text { min-width: 0; max-width: 62ch; }
 .kit-head h1 { margin: 0; font-size: var(--step-title); line-height: 1.2; letter-spacing: -0.01em; text-wrap: balance; }
 .kit-head p { margin: 4px 0 0; color: var(--muted); text-wrap: pretty; }
-.examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* The chips are added by script; reserve their row so nothing below moves. */
+.examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 32px; }
 .examples-label { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
 .chip { min-height: 32px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); cursor: pointer; font-size: var(--step--1); }
 .chip[aria-pressed="true"] { border: 1.5px solid var(--ink); background: var(--sheet); font-weight: 600; }
@@ -223,6 +230,8 @@ pre.code { margin: 0; overflow: auto; background: var(--code-bg); border: 1px so
 .viz-svg .v-hub { fill: var(--c); }
 .viz-svg .v-axis { stroke: var(--rule); stroke-width: 1; }
 .viz-svg .v-threshold { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; }
+/* A halo in the panel color, so threshold lines pass behind the labels. */
+.viz-timeline .v-label, .viz-timeline .v-tick { paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }
 .viz-svg .v-stem { stroke: var(--c); stroke-width: 1; opacity: 0.6; }
 .viz-svg .v-pt { fill: var(--muted); }
 .viz-svg .v-pt.v-ok, .viz-svg .v-pt.v-bad { fill: var(--c); }
@@ -292,12 +301,14 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
   .examples-label { display: none; }
   .examples { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .chip { flex: none; }
+  .examples { min-height: 44px; flex-basis: 100%; }
   .pane-tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
   .pane-tabs button { min-height: 44px; border: 0; background: var(--sheet); font-weight: 600; font-size: var(--step--1); cursor: pointer; }
   .pane-tabs button + button { border-left: 1px solid var(--rule); }
   .pane-tabs button[aria-selected="true"] { background: var(--ink); color: var(--sheet); }
   .panes { grid-template-columns: minmax(0, 1fr); }
-  body[data-pane="result"] #input-pane, body[data-pane="input"] #result-pane { display: none; }
+  /* Result is the default tab (as in the tab markup), even before the script runs. */
+  body:not([data-pane="input"]) #input-pane, body[data-pane="input"] #result-pane { display: none; }
   .kit-head h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* The tabs replace the pane headers on phones. Keep the h2s for screen
      readers (heading order h1 > h2 > h3) and hide the rest. */
