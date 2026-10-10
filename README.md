@@ -9,7 +9,7 @@ Pick a kit, edit a real example, and see the verdict, a graphic of what it found
 
 ## The kits
 
-There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. Plus honesty-mcp, a separate package that wraps eleven of them for AI coding agents (see below).
+There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
 
 ### Check what your AI writes
 
@@ -50,7 +50,7 @@ There are 12 kits, each its own npm package, MIT licensed, with zero runtime dep
 
 ## Use them from your AI coding agent
 
-[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) wraps eleven of the 12 kits as tools for Claude Code, Cursor, VS Code and any other MCP client. It runs on your machine with npx.
+[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and any other MCP client. Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx.
 
 ```bash
 claude mcp add honesty-mcp -- npx -y honesty-mcp

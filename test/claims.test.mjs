@@ -103,8 +103,8 @@ function countClaims(text) {
     const noun = m[4].toLowerCase();
     const n = toNumber(m[1]);
     if (m[2]) {
-      // "wraps eleven of the 12 kits": the first number is how many honesty-mcp wraps.
-      claims.push({ phrase: m[0], kind: noun === 'kits' && /wraps\s*$/.test(before) ? 'mcp-wrapped' : 'unplaced', n });
+      // "has tools for eleven of the 12 kits": the first number is how many kits honesty-mcp covers.
+      claims.push({ phrase: m[0], kind: noun === 'kits' && /(?:wraps|tools for)\s*$/.test(before) ? 'mcp-wrapped' : 'unplaced', n });
       if (m[3]) claims.push({ phrase: m[0], kind: noun === 'kits' ? 'kits' : 'unplaced', n: Number(m[3]) });
     } else {
       claims.push({ phrase: m[0], kind: { kits: 'kits', examples: 'examples', presets: 'examples', packages: 'packages', tools: 'mcp-tools' }[noun], n });
@@ -151,7 +151,7 @@ test('the README states the kit count and the honesty-mcp relationship in the ex
   assert.ok(!/\b(13|thirteen)\s+kits\b/i.test(readme) && !/\b(12|twelve)\s+packages\b/i.test(readme), 'no bare 13 kits or 12 packages');
 });
 
-test('honesty-mcp: the "wraps N of the kits" number matches its source', { skip: mcpSkip }, () => {
+test('honesty-mcp: the "tools for N of the kits" numbers match its source', { skip: mcpSkip }, () => {
   const facts = mcpFacts();
   assert.deepEqual(facts.kitsInSource, facts.kitsInDeps, 'the kits its tools import match its dependencies');
   const wrapped = facts.kitsInDeps.length;
@@ -164,9 +164,16 @@ test('honesty-mcp: the "wraps N of the kits" number matches its source', { skip:
   for (const [name, text] of SURFACES.filter(([n]) => ['README.md', 'src/page.html'].includes(n))) {
     assert.ok(countClaims(text).some((x) => x.kind === 'mcp-wrapped'), `${name} states how many kits honesty-mcp wraps`);
   }
-  // The kit it leaves out is the one the sentence implies.
   const notWrapped = KIT_IDS.filter((id) => !facts.kitsInDeps.includes(id));
   assert.equal(notWrapped.length, KITS.length - wrapped);
+  // The split between kits that run a check and kits that only get a scaffold tool (starter code).
+  const scaffolds = new Set(facts.tools.filter((t) => t.startsWith('scaffold_')));
+  const checking = wrapped - scaffolds.size;
+  const wordFor = (n) => Object.keys(WORDS).find((w) => WORDS[w] === n);
+  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  assert.ok(SURFACES[0][1].includes(`${cap(wordFor(checking))} of them run the check`), `README says ${wordFor(checking)} of the tools run a check`);
+  assert.ok(SURFACES[0][1].includes(`the other ${wordFor(scaffolds.size)} (`), `README says ${wordFor(scaffolds.size)} tools are scaffolds`);
+  assert.ok(SURFACES[1][1].includes(`${wordFor(scaffolds.size)} of them hand you starter code`), `the page says ${wordFor(scaffolds.size)} are scaffolds`);
 });
 
 // ------------------------------------------------------------------ README and page agree with KITS
