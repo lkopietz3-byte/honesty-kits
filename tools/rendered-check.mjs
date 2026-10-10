@@ -82,6 +82,7 @@ if (!browser) { server?.kill(); notRun('no browser could be launched (tried the 
 const failures = [];
 const lines = [];
 const advisory = [];
+const skipped = []; // checks that did not run; any entry means the run is NOT_RUN (exit 3), never a pass
 function report(label, problems, detail) {
   const status = problems.length ? 'FAIL' : 'PASS';
   lines.push(`${status}  ${label}  ${detail}`);
@@ -250,24 +251,32 @@ for (const width of widths) {
         try {
           await page.goto(`${base}#${id}`, { waitUntil: 'networkidle' });
           await page.waitForTimeout(id === 'add-to-agent' ? 600 : 1000);
-          if (profile === PROFILES[0]) {
+          if (profile === PROFILES[0] && id !== 'add-to-agent') {
             // Exercise the page's own code paths so any request they make would be logged.
-            for (const chip of (await page.$$('#examples .chip')).slice(0, 2)) await chip.click().catch(() => {});
+            // A click that cannot happen fails this state (the catch below); it is not swallowed.
+            for (const chip of (await page.$$('#examples .chip')).slice(0, 2)) await chip.click({ timeout: 5000 });
             await page.waitForTimeout(1500); // let the result graphic's fade-in finish before axe measures colors
           }
-          if (!axeSource) continue;
-          await page.addScriptTag({ content: axeSource });
-          const violations = await page.evaluate(async () => {
-            const r = await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] } });
-            return r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, targets: v.nodes.slice(0, 2).map((n) => `${n.target.join(' ')} (${(n.any[0]?.message ?? '').slice(0, 140)})`) }));
-          });
-          axeStates++;
-          for (const v of violations) {
-            if (!axeFound.has(v.id)) axeFound.set(v.id, { ...v, where: new Set() });
-            axeFound.get(v.id).where.add(`${width}px ${profile.name} #${id}`);
+          if (axeSource) {
+            await page.addScriptTag({ content: axeSource });
+            const violations = await page.evaluate(async () => {
+              const r = await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] } });
+              return r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, targets: v.nodes.slice(0, 2).map((n) => `${n.target.join(' ')} (${(n.any[0]?.message ?? '').slice(0, 140)})`) }));
+            });
+            axeStates++;
+            for (const v of violations) {
+              if (!axeFound.has(v.id)) axeFound.set(v.id, { ...v, where: new Set() });
+              axeFound.get(v.id).where.add(`${width}px ${profile.name} #${id}`);
+            }
+          }
+          if (id === 'add-to-agent') {
+            // The dialog makes the page behind it inert, so test its own controls here.
+            if (!(await page.$eval('#agent-dialog', (d) => d.open))) throw new Error('the agent dialog did not open from #add-to-agent');
+            await page.click('#close-agent', { timeout: 5000 });
+            if (await page.$eval('#agent-dialog', (d) => d.open)) throw new Error('the agent dialog did not close');
           }
         } catch (error) {
-          failures.push(`axe/network ${width}px ${profile.name} #${id}: ${error.message.split('\n')[0]}`);
+          failures.push(`network/dialog/axe ${width}px ${profile.name} #${id}: ${error.message.split('\n')[0]}`);
         }
       }
       await ctx.close();
@@ -277,6 +286,7 @@ for (const width of widths) {
   if (!axeSource) {
     console.log('NOT_RUN  axe: axe-core not found (pass --axe <axe.min.js or the axe-core folder>)');
     lines.push('NOT_RUN  axe');
+    skipped.push('axe-core (not found; pass --axe <axe.min.js or the axe-core folder>)');
   } else {
     report('axe-core (wcag2a, 2aa, 21aa, 22aa, best-practice)', [...axeFound.values()].map((v) => `[${v.impact}] ${v.id}: ${v.help} (${v.where.size} states, e.g. ${[...v.where][0]}; ${v.targets.join(', ')})`), `states=${axeStates} violations=${axeFound.size}`);
   }
@@ -286,5 +296,13 @@ await browser.close();
 server?.kill();
 console.log('');
 if (advisory.length) { console.log('Advisory (not a failure):'); advisory.forEach((a) => console.log(`  ${a}`)); }
-console.log(failures.length ? `\nFAIL: ${failures.length} problem(s)` : '\nPASS: every rendered check passed');
-process.exit(failures.length ? 1 : 0);
+if (failures.length) {
+  console.log(`\nFAIL: ${failures.length} problem(s)${skipped.length ? `; also NOT_RUN: ${skipped.join('; ')}` : ''}`);
+  process.exit(1);
+}
+if (skipped.length) {
+  console.log(`\nNOT_RUN: ${skipped.length} check(s) did not run (${skipped.join('; ')}). The checks that ran passed, but this is not a full pass.`);
+  process.exit(3);
+}
+console.log('\nPASS: every rendered check passed');
+process.exit(0);
