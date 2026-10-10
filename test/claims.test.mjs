@@ -91,23 +91,40 @@ const SURFACES = [
 ];
 
 // ------------------------------------------------------------------ count phrases
-// A count phrase is "<number> [of the|these [<number>]] <kits|examples|presets|packages|tools>".
-// Each is checked against a derived value; one this file cannot place fails, so
-// a new number cannot slip into the copy untested.
+// A count phrase is "<number> [of the|these [<number>]] <kits|examples|presets|packages|tools>",
+// a pronoun count ("eleven of them", "the other two (", "three ES modules"), or any other
+// spelled-out number in the prose. Each is checked against a derived value; one this file
+// cannot place fails, so a new number cannot slip into the copy untested.
 const COUNT = /\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b(\s+of\s+(?:the|these|those))?\s+(?:(\d+)\s+)?(kits|examples|presets|packages|tools)\b/gi;
+
+const NUM = '(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)';
+const PRONOUN = new RegExp(`\\b${NUM}\\s+of\\s+(?:them|those|these)\\b`, 'gi');
+const OTHER_TWO = new RegExp(`\\bthe other ${NUM}\\s*\\(`, 'gi');
+const MODULES = new RegExp(`\\b${NUM}\\s+ES modules\\b`, 'gi');
+const SPELLED = /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/gi;
 
 function countClaims(text) {
   const claims = [];
+  for (const m of text.matchAll(PRONOUN)) {
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    const before = text.slice(Math.max(0, m.index - 120), m.index);
+    const kind = /^\s+run the check/.test(after) ? 'mcp-checking'
+      : /^\s+hand you starter code/.test(after) ? 'mcp-scaffold'
+      : /honesty-mcp|tools for/i.test(before) ? 'mcp-wrapped' : 'unplaced';
+    claims.push({ phrase: m[0], kind, n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
+  }
+  for (const m of text.matchAll(OTHER_TWO)) claims.push({ phrase: m[0], kind: 'mcp-scaffold', n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
+  for (const m of text.matchAll(MODULES)) claims.push({ phrase: m[0], kind: 'modules', n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
   for (const m of text.matchAll(COUNT)) {
     const before = text.slice(Math.max(0, m.index - 40), m.index).toLowerCase();
     const noun = m[4].toLowerCase();
     const n = toNumber(m[1]);
     if (m[2]) {
       // "has tools for eleven of the 12 kits": the first number is how many kits honesty-mcp covers.
-      claims.push({ phrase: m[0], kind: noun === 'kits' && /(?:wraps|tools for)\s*$/.test(before) ? 'mcp-wrapped' : 'unplaced', n });
-      if (m[3]) claims.push({ phrase: m[0], kind: noun === 'kits' ? 'kits' : 'unplaced', n: Number(m[3]) });
+      claims.push({ phrase: m[0], kind: noun === 'kits' && /(?:wraps|tools for)\s*$/.test(before) ? 'mcp-wrapped' : 'unplaced', n, at: m.index, end: m.index + m[0].length });
+      if (m[3]) claims.push({ phrase: m[0], kind: noun === 'kits' ? 'kits' : 'unplaced', n: Number(m[3]), at: m.index, end: m.index + m[0].length });
     } else {
-      claims.push({ phrase: m[0], kind: { kits: 'kits', examples: 'examples', presets: 'examples', packages: 'packages', tools: 'mcp-tools' }[noun], n });
+      claims.push({ phrase: m[0], kind: { kits: 'kits', examples: 'examples', presets: 'examples', packages: 'packages', tools: 'mcp-tools' }[noun], n, at: m.index, end: m.index + m[0].length });
     }
   }
   return claims;
@@ -117,17 +134,32 @@ function expectedCount(kind) {
   if (kind === 'kits') return KITS.length;
   if (kind === 'packages') return KITS.length + 1; // the kits plus honesty-mcp
   if (kind === 'examples') return EXAMPLES;
+  if (kind === 'modules') {
+    // The page's own ES modules are the .mjs files tools/build.mjs copies next to index.html.
+    const list = read('tools/build.mjs').match(/for \(const file of \[([^\]]*\.mjs[^\]]*)\]\) copyFileSync/)?.[1] ?? '';
+    return (list.match(/\.mjs/g) ?? []).length;
+  }
   if (!MCP_DIR) return undefined; // cannot be checked without the honesty-mcp source
   const facts = mcpFacts();
   if (kind === 'mcp-wrapped') return facts.kitsInDeps.length;
   if (kind === 'mcp-tools') return facts.tools.length;
+  const scaffolds = facts.tools.filter((t) => t.startsWith('scaffold_')).length;
+  if (kind === 'mcp-scaffold') return scaffolds;
+  if (kind === 'mcp-checking') return facts.kitsInDeps.length - scaffolds;
   return undefined;
 }
 
 /** Problems found in one surface; the mutation checks reuse this. */
-export function countProblems(name, text) {
+export function countProblems(name, text, { prose = true } = {}) {
   const problems = [];
-  for (const c of countClaims(text)) {
+  const claims = countClaims(text);
+  // Prose must not carry a spelled-out number that no pattern above placed.
+  if (prose) {
+    for (const m of text.matchAll(SPELLED)) {
+      if (!claims.some((c) => m.index >= c.at && m.index < c.end)) problems.push(`${name}: cannot place the number in "${text.slice(Math.max(0, m.index - 25), m.index + 30).replace(/\s+/g, ' ')}"`);
+    }
+  }
+  for (const c of claims) {
     if (c.kind === 'unplaced') { problems.push(`${name}: cannot place the count in "${c.phrase}"`); continue; }
     const expected = expectedCount(c.kind);
     if (expected === undefined) continue; // honesty-mcp source absent: skipped, see the dedicated test
@@ -139,7 +171,7 @@ export function countProblems(name, text) {
 test('the number of kits, examples and packages matches the source', () => {
   assert.equal(new Set(KIT_IDS).size, KIT_IDS.length, 'kit ids are unique');
   assert.ok(KITS.length > 0 && EXAMPLES >= KITS.length, 'every kit has at least one example');
-  const problems = SURFACES.flatMap(([name, text]) => countProblems(name, text));
+  const problems = SURFACES.flatMap(([name, text]) => countProblems(name, text, { prose: !/\.mjs/.test(name) }));
   assert.deepEqual(problems, []);
 });
 
@@ -299,5 +331,9 @@ test('the wording checks catch what they are meant to catch', () => {
   assert.ok(countProblems('x', 'It has 13 kits.').length === 1);
   assert.ok(countProblems('x', 'It has 12 packages.').length === 1);
   assert.ok(countProblems('x', 'Pick from 7777 examples.').length === 1);
+  if (MCP_DIR) assert.ok(countProblems('x', 'honesty-mcp has tools for ten of them.').length === 1, 'a pronoun count is checked');
+  assert.ok(countProblems('x', 'It is a thing, and there are ten of them.').length === 1, 'a pronoun count with no context is unplaced');
+  assert.ok(countProblems('x', 'The page has seven ES modules.').length === 1, 'an ES module count is checked');
+  assert.ok(countProblems('x', 'There are twelve of something.').length === 1, 'an unplaced spelled-out number fails');
   assert.deepEqual(countProblems('x', `Try all ${KITS.length} kits and ${KITS.length + 1} packages and ${EXAMPLES} examples.`), []);
 });

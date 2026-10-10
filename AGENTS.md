@@ -20,7 +20,7 @@ npm test        # every example and generated snippet against the real kits, the
 node tools/build.mjs && npm run serve    # http://127.0.0.1:8080/
 ```
 
-`node tools/rendered-check.mjs --playwright-root <dir> --axe <axe.min.js or folder>` loads the built page in a real browser (widths, dark mode, requests to other origins, focus, axe). It needs Playwright and axe-core by path and adds no dependency; without them it prints NOT_RUN. CI does not run it.
+`node tools/rendered-check.mjs --playwright-root <dir> --axe <axe.min.js or folder>` loads the built page in a real browser (widths, dark mode, requests to other origins, focus, axe). It needs Playwright and axe-core by path and adds no dependency; without them it prints NOT_RUN and exits 3 (also when only axe-core is missing, even if everything else passed). CI does not run it.
 
 CI uses Node 24. Run `npm ci` again after switching branches or pulling, before trusting any test result.
 
