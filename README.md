@@ -73,7 +73,7 @@ The playground is static HTML and three ES modules, with no bundler. `tools/buil
 ```bash
 npm ci             # installs the exact kit versions the page serves
 npm test           # runs every example and every generated snippet against the real kits, then checks the build
-node tools/build.mjs && npx serve dist
+node tools/build.mjs && npm run serve    # builds dist/, then serves it at http://127.0.0.1:8080/
 ```
 
 `node tools/bump-kits.mjs grounding-kit@0.2.1 ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
