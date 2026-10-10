@@ -5,11 +5,11 @@ Small, dependency-free TypeScript checks for the claims your AI product makes.
 [![The playground: a draft with a bad citation gets fixed, a ranking moves when a partner pays more, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
 
 **[Try every kit in your browser →](https://lkopietz3-byte.github.io/honesty-kits/)**
-Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy blocks it from sending anything you type.
+Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy tells the browser to block requests to any other site.
 
 ## The kits
 
-Each kit is its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several.
+There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. Plus honesty-mcp, a separate package that wraps eleven of them for AI coding agents (see below).
 
 ### Check what your AI writes
 
@@ -50,7 +50,7 @@ Each kit is its own npm package, MIT licensed, with zero runtime dependencies an
 
 ## Use them from your AI coding agent
 
-[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) wraps eleven of the kits as tools for Claude Code, Cursor, VS Code and any other MCP client. It runs on your machine with npx.
+[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) wraps eleven of the 12 kits as tools for Claude Code, Cursor, VS Code and any other MCP client. It runs on your machine with npx.
 
 ```bash
 claude mcp add honesty-mcp -- npx -y honesty-mcp

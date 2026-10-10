@@ -331,7 +331,7 @@ function dial(v, W, motion) {
   } else {
     add(svg, 'circle', { cx, cy, r, class: 'v-ring v-dashed' });
   }
-  add(svg, 'text', { x: cx, y: cy - 4, 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'v-big' }, v.score === null ? '—' : String(v.score));
+  add(svg, 'text', { x: cx, y: cy - 4, 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'v-big' }, v.score === null ? '–' : String(v.score));
   add(svg, 'text', { x: cx, y: cy + 22, 'text-anchor': 'middle', class: 'v-tick' }, v.score === null ? 'no score' : 'of 100');
   lines.forEach(([m, text], i) => {
     const g = add(svg, 'g', {});

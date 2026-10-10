@@ -985,7 +985,7 @@ if (!check.allowed) process.exitCode = 1;
   },
 ];
 
-/** The MCP server that wraps eleven of the kits for AI coding agents. */
+/** The MCP server that wraps eleven of the 12 kits for AI coding agents. */
 export const MCP = {
   id: 'honesty-mcp',
   version: '0.2.0',

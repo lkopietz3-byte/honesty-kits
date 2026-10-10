@@ -9,10 +9,12 @@
 // - A Content-Security-Policy lets the page load only its own files and send
 //   nothing anywhere (connect-src 'none', form-action 'none').
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { KITS } from '../demos.mjs';
 
 const root = new URL('../', import.meta.url);
-const out = new URL('dist/', root);
+// HONESTY_KITS_OUT (an absolute path) lets a test build somewhere other than dist/.
+const out = process.env.HONESTY_KITS_OUT ? pathToFileURL(`${process.env.HONESTY_KITS_OUT.replace(/\/?$/, '/')}`) : new URL('dist/', root);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 let page = readFileSync(new URL('src/page.html', root), 'utf8');
@@ -74,7 +76,7 @@ const jsonLd = JSON.stringify({
   '@type': 'WebApplication',
   name: 'Honesty Kits',
   url: site,
-  description: 'Small, dependency-free TypeScript checks for the claims an AI product makes. Try all 12 kits in your browser.',
+  description: `Small, dependency-free TypeScript checks for the claims an AI product makes. Try all ${KITS.length} kits in your browser.`,
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'Any',
   isAccessibleForFree: true,
