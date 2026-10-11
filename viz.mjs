@@ -119,7 +119,7 @@ function threads(v, W, motion) {
     } else {
       for (const id of s.citedIds) {
         const ty = ey(id);
-        const good = s.status === 'grounded';
+        const good = (s.validIds ?? []).includes(id);
         const path = add(svg, 'path', { d: `M ${lx + 10} ${y} C ${(lx + rx) / 2} ${y}, ${(lx + rx) / 2} ${ty}, ${rx - 18} ${ty}`, class: `v-line v-${good ? 'ok' : 'bad'}`, 'stroke-dasharray': good ? null : '6 5' });
         drawIn(motion, path, 600, step * 180);
         if (!good) {
@@ -267,15 +267,16 @@ function slope(v, W, motion) {
     v.base.forEach((id, r) => {
       const r2 = col.order.indexOf(id);
       const moved = r2 !== r;
-      const path = add(svg, 'path', { d: `M ${x0} ${y(r)} L ${x1} ${y(r2)}`, class: `v-line v-${moved ? 'bad' : 'ok'}${moved ? '' : ' v-quiet'}` });
+      const mark = col.vacuous ? 'skip' : moved ? 'bad' : 'ok';
+      const path = add(svg, 'path', { d: `M ${x0} ${y(r)} L ${x1} ${y(r2)}`, class: `v-line v-${mark}${moved ? '' : ' v-quiet'}` });
       add(svg, 'circle', { cx: x0, cy: y(r), r: 3.5, class: 'v-pt' });
-      add(svg, 'circle', { cx: x1, cy: y(r2), r: 3.5, class: `v-pt v-${moved ? 'bad' : 'ok'}` });
+      add(svg, 'circle', { cx: x1, cy: y(r2), r: 3.5, class: `v-pt v-${mark}` });
       drawIn(motion, path, 600, c * 420);
     });
     const mid = (x0 + x1) / 2;
     names[c].forEach((line, i) => add(svg, 'text', { x: mid, y: H - 22 - (names[c].length - 1 - i) * 14, 'text-anchor': 'middle', class: 'v-label' }, line));
-    const word = longVerdict ? (col.changed ? 'order changed' : 'same order') : (col.changed ? 'changed' : 'same');
-    const verdict = add(svg, 'text', { x: mid, y: H - 6, 'text-anchor': 'middle', class: `v-tag v-${col.changed ? 'bad' : 'ok'}` }, word);
+    const word = col.vacuous ? fit('not tested', panelW - 6, 'tag') : longVerdict ? (col.changed ? 'order changed' : 'same order') : (col.changed ? 'changed' : 'same');
+    const verdict = add(svg, 'text', { x: mid, y: H - 6, 'text-anchor': 'middle', class: `v-tag v-${col.vacuous ? 'skip' : col.changed ? 'bad' : 'ok'}` }, word);
     play(motion, verdict, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, delay: c * 420 + 560 });
   });
   return svg;
@@ -296,8 +297,8 @@ function bars(v, W, motion) {
   rows.forEach((row, i) => {
     const y = 6 + i * rowH;
     add(svg, 'text', { x: labelW - 8, y: y + 9.5, 'text-anchor': 'end', 'dominant-baseline': 'middle', class: 'v-label' }, trunc(row.label, 12));
-    if (row.value === null || row.value === undefined) {
-      add(svg, 'text', { x: labelW + 8, y: y + 9.5, 'dominant-baseline': 'middle', class: 'v-tick' }, 'no readings');
+    if (row.vacuous || row.value === null || row.value === undefined) {
+      add(svg, 'text', { x: labelW + 8, y: y + 9.5, 'dominant-baseline': 'middle', class: 'v-tick' }, row.vacuous ? 'not tested' : 'no readings');
       return;
     }
     const mark = row.base ? 'skip' : row.changed ? 'bad' : 'ok';
@@ -314,7 +315,7 @@ function bars(v, W, motion) {
 function dial(v, W, motion) {
   const lines = [
     [v.flags.lowSourceCount ? 'warn' : 'ok', v.flags.lowSourceCount ? 'Few source types' : 'Several source types'],
-    [v.flags.uniformSentiment ? 'warn' : 'ok', v.flags.uniformSentiment ? 'Uniform sentiment' : 'Varied sentiment'],
+    [v.flags.uniformSentiment ? 'warn' : 'ok', v.flags.uniformSentiment ? 'Uniform sentiment' : 'Extreme uniformity not flagged'],
     ['info', `Confidence: ${v.confidence}`],
   ].map(([m, text], i) => (v.score === null && i < 2 ? ['skip', `${text} (not assessed)`] : [m, text]));
   // Beside the ring when the longest line fits; otherwise stacked below it.
@@ -349,32 +350,41 @@ function chain(v, W, motion) {
   const missing = v.brokenAt !== null && v.brokenAt >= entries.length;
   const slots = entries.length + (missing ? 1 : 0);
   const gap = 18;
-  const bw = Math.min(96, (W - 16 - gap * (slots - 1)) / slots);
-  const H = 104;
-  const svg = frame(W, H, v.brokenAt === null ? 'Every link verified' : `Chain broken at entry ${v.brokenAt}`);
-  const left = Math.max(8, (W - (slots * bw + (slots - 1) * gap)) / 2);
-  const x = (i) => left + i * (bw + gap);
+  const columns = Math.max(1, Math.floor((W - 16 + gap) / (96 + gap)));
+  const usedColumns = Math.min(columns, Math.max(1, slots));
+  const bw = Math.min(96, (W - 16 - gap * (usedColumns - 1)) / usedColumns);
+  const rowH = 110;
+  const H = Math.max(60, Math.ceil(slots / columns) * rowH);
+  const svg = frame(W, H, slots === 0 ? 'No entries or anchor' : v.brokenAt === null ? 'Every visible link verified' : `Chain broken at entry ${v.brokenAt}`);
+  const left = Math.max(8, (W - (usedColumns * bw + (usedColumns - 1) * gap)) / 2);
+  const x = (i) => left + (i % columns) * (bw + gap);
+  const y = (i) => Math.floor(i / columns) * rowH;
+  if (!slots) add(svg, 'text', { x: 8, y: 28, class: 'v-label' }, 'No entries or anchor');
   for (let i = 0; i < slots; i += 1) {
     const isMissing = i >= entries.length;
     const e = entries[i];
     const state = v.brokenAt === null ? 'ok' : i < v.brokenAt ? 'ok' : i === v.brokenAt ? 'bad' : 'skip';
+    const row = add(svg, 'g', { transform: `translate(0 ${y(i)})` });
     if (i > 0) {
       const broken = state === 'bad' && v.kind !== 'content';
-      const link = add(svg, 'path', { d: broken ? `M ${x(i) - gap} 40 l 5 -6 l 4 10 l 4 -8 l 5 4` : `M ${x(i) - gap} 40 H ${x(i)}`, class: `v-link v-${broken ? 'bad' : state === 'skip' ? 'skip' : 'ok'}` });
+      // At a row break, route down from the previous block to the next row.
+      const d = i % columns === 0
+        ? `M ${x(i - 1) + bw / 2} ${40 - rowH} V -6 H ${x(i) + bw / 2} V 18`
+        : broken ? `M ${x(i) - gap} 40 l 5 -6 l 4 10 l 4 -8 l 5 4` : `M ${x(i) - gap} 40 H ${x(i)}`;
+      const link = add(row, 'path', { d, class: `v-link v-${broken ? 'bad' : state === 'skip' ? 'skip' : 'ok'}` });
       play(motion, link, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, delay: i * 160 });
     }
-    const g = add(svg, 'g', { class: `v-block v-${state}${isMissing ? ' v-ghost' : ''}` });
+    const g = add(row, 'g', { class: `v-block v-${state}${isMissing ? ' v-ghost' : ''}` });
     add(g, 'rect', { x: x(i), y: 18, width: bw, height: 44, rx: 2 });
-    add(g, 'text', { x: x(i) + 8, y: 34, class: 'v-label' }, isMissing ? `#${i} missing` : `#${e.index}`);
-    if (!isMissing) add(g, 'text', { x: x(i) + 8, y: 52, class: 'v-hash' }, bw > 70 ? e.hash : e.hash.slice(0, 4));
+    add(g, 'text', { x: x(i) + 8, y: 34, class: 'v-label' }, fit(isMissing ? `#${i} missing` : `#${e.index}`, bw - 16, 'label'));
+    if (!isMissing) add(g, 'text', { x: x(i) + 8, y: 52, class: 'v-hash' }, fit(e.hash ?? '', bw - 16, 'tick'));
     if (state === 'bad' && v.kind === 'content') {
-      // The entry's content no longer matches its own hash: mark the block, not the link.
       add(g, 'path', { d: `M ${x(i) + bw - 22} 24 l 14 14 M ${x(i) + bw - 8} 24 l -14 14`, class: 'v-cross' });
-      add(svg, 'text', { x: x(i) + bw / 2, y: 12, 'text-anchor': 'middle', class: 'v-tag v-bad' }, fit('content changed', bw + gap, 'tag'));
+      add(row, 'text', { x: x(i) + bw / 2, y: 12, 'text-anchor': 'middle', class: 'v-tag v-bad' }, fit('content changed', bw + gap, 'tag'));
     }
     play(motion, g, [{ opacity: 0.25 }, { opacity: 1 }], { duration: 240, delay: i * 160 });
     if (v.anchorIndex === i) {
-      const a = add(svg, 'g', { class: 'v-anchor' });
+      const a = add(row, 'g', { class: 'v-anchor' });
       const ax = x(i) + bw / 2;
       add(a, 'circle', { cx: ax, cy: 82, r: 7 });
       add(a, 'path', { d: `M ${ax - 11} 82 H ${ax + 11} M ${ax} 71 V 93` });
@@ -414,12 +424,16 @@ function budget(v, W, motion) {
     play(motion, nextBar, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 600 });
     top = y + 44;
   };
-  drawBar(0, Math.max(v.ceiling, total) * 1.04, `FULL BUDGET · $0 TO $${(Math.max(v.ceiling, total) * 1.04).toFixed(2)}`, 2);
+  drawBar(0, Math.max(v.ceiling, total) * 1.04 || 1, `FULL BUDGET · $0 TO $${(Math.max(v.ceiling, total) * 1.04).toFixed(2)}`, 2);
   if (near) {
     const span = Math.max(v.next * 6, v.ceiling * 0.002);
     const lo = Math.max(0, Math.min(v.spent, v.ceiling) - span);
     const hi = Math.max(v.ceiling, total) + span * 0.35;
     drawBar(lo, hi, `ZOOMED · $${lo.toFixed(4)} TO $${hi.toFixed(4)} (THE NEXT CALL IS TOO SMALL TO SEE ABOVE)`, 4);
+  }
+  if (v.ceiling === 0 && total === 0) {
+    add(svg, 'text', { x: pad, y: top + 14, class: 'v-caption' }, 'ZERO BUDGET · ZERO ESTIMATED COST');
+    top += 24;
   }
   const H = top + (near ? 0 : 10);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -441,7 +455,10 @@ function lanes(v, _W, motion) {
     for (const item of items) {
       const chip = document.createElement('span');
       chip.className = `v-chip v-${item.mark}`;
-      chip.innerHTML = `<b aria-hidden="true">${GLYPH[item.mark]}</b>`;
+      const glyph = document.createElement('b');
+      glyph.setAttribute('aria-hidden', 'true');
+      glyph.textContent = GLYPH[item.mark];
+      chip.append(glyph);
       chip.append(document.createTextNode(item.label));
       r.append(chip);
     }

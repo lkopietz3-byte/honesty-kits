@@ -3,8 +3,9 @@
 // is meant to show. If a kit's behavior or output shape changes, this fails.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { KITS, MCP, mcpLinks, reportMarkdown, formatJson } from '../demos.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -87,8 +88,8 @@ test('each result carries its graphic data and a fix for every problem', async (
 });
 
 test('every generated snippet runs against the real kit and exits like the playground verdict', async () => {
-  const dir = new URL('./.snippets/', import.meta.url);
-  mkdirSync(dir, { recursive: true });
+  // Separate runs must never overwrite or remove each other’s snippets.
+  const dir = pathToFileURL(`${mkdtempSync(new URL('./.snippets-', import.meta.url))}/`);
   try {
     for (const kit of KITS) {
       const mod = await import(kit.id);

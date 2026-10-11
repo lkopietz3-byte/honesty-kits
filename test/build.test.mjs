@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { KITS } from '../demos.mjs';
+import { pathToFileURL } from 'node:url';
 
 const root = new URL('../', import.meta.url);
 const dist = new URL('dist/', root);
@@ -42,7 +43,9 @@ test('every kit is served at the tested version with a complete import graph', (
     };
     walk(new URL('index.js', dir));
     // Byte-identical to the installed npm package.
-    const installed = new URL(`node_modules/${kit.id}/dist/index.js`, root);
+    const installed = process.env.HONESTY_KIT_ROOT
+      ? new URL(`${kit.id}/dist/index.js`, pathToFileURL(`${process.env.HONESTY_KIT_ROOT}/`))
+      : new URL(`node_modules/${kit.id}/dist/index.js`, root);
     assert.equal(readFileSync(new URL('index.js', dir), 'utf8'), readFileSync(installed, 'utf8'), `${kit.id} index.js matches npm`);
   }
 });

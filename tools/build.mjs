@@ -10,8 +10,13 @@
 //   nothing anywhere (connect-src 'none', form-action 'none').
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 import { KITS } from '../demos.mjs';
+import { pathToFileURL } from 'node:url';
 
 const root = new URL('../', import.meta.url);
+// Optional local verification source. Version checks still apply to every kit.
+const kitRoot = process.env.HONESTY_KIT_ROOT
+  ? pathToFileURL(`${process.env.HONESTY_KIT_ROOT}/`)
+  : new URL('node_modules/', root);
 const out = new URL('dist/', root);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -27,7 +32,7 @@ function copyTree(from, to) {
 }
 const kitDir = (kit) => `kits/${kit.id}@${kit.version}/`;
 for (const kit of KITS) {
-  const installed = new URL(`node_modules/${kit.id}/`, root);
+  const installed = new URL(`${kit.id}/`, kitRoot);
   const { version } = JSON.parse(readFileSync(new URL('package.json', installed), 'utf8'));
   if (version !== kit.version) throw new Error(`${kit.id}: demos.mjs pins ${kit.version} but ${version} is installed (run npm ci)`);
   copyTree(new URL('dist/', installed), new URL(kitDir(kit), out));

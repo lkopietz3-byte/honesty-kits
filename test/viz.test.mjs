@@ -95,3 +95,37 @@ test('timeline: a very long list still lays out quickly', { timeout: 5000 }, () 
   check({ type: 'timeline', unit: 'days since last reviewed', items, thresholds: [{ days: 30, label: 'warn 30d' }, { days: 90, label: 'stale 90d' }] }, 700, 'timeline 2000 items');
   assert.ok(performance.now() - started < 1500, `2000 items took ${(performance.now() - started).toFixed(0)} ms`);
 });
+
+const graphicNodes = (viz, width = 330) => nodesOf(renderViz(viz, { width, animate: false }).children[0]).map(([node]) => node);
+test('HK18: one valid citation stays good beside a failed citation', () => {
+  const nodes=graphicNodes({type:'threads',evidenceIds:['e1','e2'],sentences:[{status:'invalid',citedIds:['e1','e2'],validIds:['e1']}]});
+  const links=nodes.filter(n=>n.tagName==='path' && /v-line/.test(n.attrs.class));
+  assert.ok(links.some(n=>/v-ok/.test(n.attrs.class)));assert.ok(links.some(n=>/v-bad/.test(n.attrs.class)));
+});
+test('HK20: a zero-dollar budget has finite coordinates and a visible explanation', () => {
+  const v={type:'budget',spent:0,next:0,ceiling:0,allowed:true};
+  for(const w of WIDTHS)check(v,w,`zero budget at ${w}`);
+  assert.ok(graphicNodes(v).some(n=>/zero budget/i.test(n.text)));
+});
+test('HK21: long chains wrap into positive-width rows', () => {
+  const v={type:'chain',entries:Array.from({length:20},(_,i)=>({index:i,hash:'12345678'})),brokenAt:null,kind:null,anchorIndex:19};
+  for(const w of WIDTHS) {
+    check(v,w,`20-entry chain at ${w}`);
+    for(const n of graphicNodes(v,w)) if(n.tagName==='rect')assert.ok(Number(n.attrs.width)>0);
+  }
+});
+test('HK04: vacuous invariance graphics use unchecked labels and marks', () => {
+  const v={type:'slope',base:['x'],columns:[{label:'same input',order:['x'],changed:false,vacuous:true}]};
+  assert.ok(graphicNodes(v).some(n=>/not tested/.test(n.text)));
+  const b={type:'bars',baseline:{label:'base',value:815},unit:'bps',bars:[{label:'68102',value:815,changed:false,vacuous:true}]};
+  assert.ok(graphicNodes(b).some(n=>/not tested/.test(n.text)));
+});
+test('HK15: the sentiment graphic names the absent flag', () => {
+  assert.ok(graphicNodes({type:'dial',score:75,flags:{lowSourceCount:false,uniformSentiment:false},confidence:'medium'},700).some(n=>n.text==='Extreme uniformity not flagged'));
+});
+test('unsafe input stays text in receipt graphics', () => {
+  const payload='<img src=x onerror=alert(1)>';
+  const fig=renderViz({type:'lanes',allowed:[payload],claimed:[{label:payload,ok:true}],facts:[]},{width:330,animate:false});
+  const walk=(n)=>[n,...(n.children??[]).flatMap(walk)];
+  assert.ok(walk(fig).some(n=>n.textContent===payload));assert.ok(!walk(fig).some(n=>n.tagName==='img'));
+});

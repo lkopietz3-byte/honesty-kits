@@ -15,6 +15,7 @@
   --ink: #0F1A21;
   --muted: #55626C;
   --rule: #C9D2D8;
+  --control-border: #7A8790;
   --accent: #0A6C88;
   --ok: #14774D;
   --bad: #BF3328;
@@ -40,14 +41,14 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #0B1115; --sheet: #111A20; --ink: #E5ECEF; --muted: #95A3AD; --rule: #27333B; --accent: #57B6D3;
+    --paper: #0B1115; --sheet: #111A20; --ink: #E5ECEF; --muted: #95A3AD; --rule: #27333B; --control-border: #71828E; --accent: #57B6D3;
     --ok: #4FC28E; --bad: #FF7A6B; --warn: #E3AE4B; --info: #8BB1EA; --skip: #8D9AA4;
     --ok-tint: #12291F; --bad-tint: #2E1714; --warn-tint: #2B2212; --info-tint: #14213A; --skip-tint: #1A242B;
     --code-bg: #0D151A; --mark-bg: #5A4712; --sheet-lift: inset 0 1px 0 rgb(255 255 255 / 0.07); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #0B1115; --sheet: #111A20; --ink: #E5ECEF; --muted: #95A3AD; --rule: #27333B; --accent: #57B6D3;
+  --paper: #0B1115; --sheet: #111A20; --ink: #E5ECEF; --muted: #95A3AD; --rule: #27333B; --control-border: #71828E; --accent: #57B6D3;
   --ok: #4FC28E; --bad: #FF7A6B; --warn: #E3AE4B; --info: #8BB1EA; --skip: #8D9AA4;
   --ok-tint: #12291F; --bad-tint: #2E1714; --warn-tint: #2B2212; --info-tint: #14213A; --skip-tint: #1A242B;
   --code-bg: #0D151A; --mark-bg: #5A4712; --sheet-lift: inset 0 1px 0 rgb(255 255 255 / 0.07); color-scheme: dark;
@@ -82,7 +83,7 @@ a { color: var(--accent); }
 .btn-ink { background: var(--ink); color: var(--sheet); }
 .btn-ink:hover { background: var(--accent); border-color: var(--accent); }
 .btn:not(.btn-ink):hover { background: var(--sheet); }
-.btn-small { min-height: 30px; padding: 0 10px; font-size: 0.75rem; border-color: var(--rule); }
+.btn-small { min-height: 30px; padding: 0 10px; font-size: 0.75rem; border-color: var(--control-border); }
 .btn:disabled { opacity: 0.45; cursor: default; }
 /* Phones and tablets get a Share button in the top bar (the pane header with
    Copy link is hidden there). The check mark confirms a copied link. */
@@ -107,6 +108,7 @@ a { color: var(--accent); }
 
 .picker { display: none; }
 .pane-tabs { display: none; }
+.link-status { margin: 0; color: var(--bad); font-size: var(--step--1); }
 
 /* ---------- work area ---------- */
 .work { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -120,7 +122,7 @@ a { color: var(--accent); }
 /* The chips are added by script; reserve their row so nothing below moves. */
 .examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 32px; }
 .examples-label { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
-.chip { min-height: 32px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); cursor: pointer; font-size: var(--step--1); }
+.chip { min-height: 32px; padding: 0 12px; border: 1px solid var(--control-border); border-radius: 999px; background: var(--sheet); cursor: pointer; font-size: var(--step--1); }
 .chip[aria-pressed="true"] { border: 1.5px solid var(--ink); background: var(--sheet); font-weight: 600; }
 
 .panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; }
@@ -134,7 +136,7 @@ a { color: var(--accent); }
 /* fields */
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label, .field legend { font-size: var(--step--1); font-weight: 600; padding: 0; }
-.field textarea, .field input[type="text"] { width: 100%; border: 1px solid var(--rule); border-radius: 2px; background: var(--code-bg); padding: 8px 10px; resize: vertical; }
+.field textarea, .field input[type="text"] { width: 100%; border: 1px solid var(--control-border); border-radius: 2px; background: var(--code-bg); padding: 8px 10px; resize: vertical; }
 .field textarea { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; }
 .field textarea.prose { font-family: var(--font-ui); font-size: var(--step--1); white-space: pre-wrap; }
 .field input[type="text"] { font-family: var(--font-mono); font-size: 0.8125rem; min-height: 34px; }
@@ -144,7 +146,7 @@ fieldset.field { border: 0; margin: 0; padding: 0; }
 .field.grow { flex: 1 1 auto; min-height: 140px; }
 .field.grow textarea { flex: 1 1 auto; min-height: 110px; resize: none; }
 .segmented { display: flex; flex-wrap: wrap; gap: 6px; }
-.segmented label { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 2px; font-weight: 500; cursor: pointer; background: var(--code-bg); }
+.segmented label { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--control-border); border-radius: 2px; font-weight: 500; cursor: pointer; background: var(--code-bg); }
 .segmented input { accent-color: var(--accent); margin: 0; }
 .segmented label:has(input:checked) { border-color: var(--ink); background: var(--sheet); }
 
@@ -308,10 +310,11 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
   .examples { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .chip { flex: none; }
   .examples { min-height: 44px; flex-basis: 100%; }
-  .pane-tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .pane-tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--control-border); border-radius: 3px; overflow: hidden; }
   .pane-tabs button { min-height: 44px; border: 0; background: var(--sheet); font-weight: 600; font-size: var(--step--1); cursor: pointer; }
-  .pane-tabs button + button { border-left: 1px solid var(--rule); }
-  .pane-tabs button[aria-selected="true"] { background: var(--ink); color: var(--sheet); }
+  .pane-tabs button + button { border-left: 1px solid var(--control-border); }
+  .pane-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
+  .pane-tabs button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
   .panes { grid-template-columns: minmax(0, 1fr); }
   /* Result is the default tab (as in the tab markup), even before the script runs. */
   body:not([data-pane="input"]) #input-pane, body[data-pane="input"] #result-pane { display: none; }
@@ -385,13 +388,14 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
     <div class="kit-head">
       <div class="kit-head-text">
         <h1 id="kit-title">Citations</h1>
-        <p id="kit-question">Does each sentence cite evidence that actually says it?</p>
+        <p id="kit-question">Do sentences cite known evidence with sufficient wording overlap?</p>
       </div>
       <div class="examples" id="examples" role="group" aria-label="Examples"></div>
     </div>
-    <div class="pane-tabs" role="tablist" aria-label="Show">
-      <button type="button" role="tab" data-pane-tab="input" aria-selected="false" aria-controls="input-pane">Input</button>
-      <button type="button" role="tab" data-pane-tab="result" aria-selected="true" aria-controls="result-pane">Result</button>
+    <p id="link-status" class="link-status" role="status" hidden></p>
+    <div class="pane-tabs" role="group" aria-label="Show">
+      <button type="button" data-pane-tab="input" aria-pressed="false" aria-controls="input-pane">Input</button>
+      <button type="button" data-pane-tab="result" aria-pressed="true" aria-controls="result-pane">Result</button>
     </div>
 
     <div class="panes">

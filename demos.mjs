@@ -18,11 +18,13 @@ const clip = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
  */
 export function formatJson(value, indent = '') {
   const flat = (v) => v === null || typeof v !== 'object';
-  const inline = (v) => JSON.stringify(v).replace(/^\{"/, '{ "').replace(/\}$/, ' }').replace(/,"/g, ', "').replace(/":/g, '": ').replace(/^\[\]$/, '[]');
+  const inline = (v) => Array.isArray(v)
+    ? `[${v.map((x) => JSON.stringify(x)).join(', ')}]`
+    : `{ ${Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${Array.isArray(x) ? inline(x) : JSON.stringify(x)}`).join(', ')} }`;
   const next = `${indent}  `;
   if (flat(value)) return JSON.stringify(value);
   if (Array.isArray(value)) {
-    if (value.every(flat)) return JSON.stringify(value).replace(/,/g, ', ');
+    if (value.every(flat)) return inline(value);
     return `[\n${value.map((v) => next + (isFlatObject(v) ? inline(v) : formatJson(v, next))).join(',\n')}\n${indent}]`;
   }
   if (isFlatObject(value) && inline(value).length + indent.length <= 72) return inline(value);
@@ -32,7 +34,15 @@ export function formatJson(value, indent = '') {
 function isFlatObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((x) => x === null || typeof x !== 'object' || (Array.isArray(x) && x.every((y) => y === null || typeof y !== 'object')));
 }
-const js = (value) => formatJson(value);
+// Ordinary JSON is readable JavaScript. Own __proto__ keys need JSON.parse
+// because object literal syntax gives that key special prototype semantics.
+function hasOwnProtoKey(value) {
+  return value !== null && typeof value === 'object' &&
+    (Object.hasOwn(value, '__proto__') || Object.values(value).some(hasOwnProtoKey));
+}
+const js = (value) => hasOwnProtoKey(value)
+  ? `JSON.parse(${JSON.stringify(JSON.stringify(value))})`
+  : formatJson(value);
 
 /** Parse a date-only or zoned timestamp the strict way; reject anything else. */
 function strictDate(value, label) {
@@ -40,10 +50,14 @@ function strictDate(value, label) {
     throw new RangeError(`${label} must be YYYY-MM-DD or a timestamp with a zone, like 2026-10-01T12:00:00Z`);
   }
   const date = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
-  if (Number.isNaN(date.getTime())) throw new RangeError(`${label} is not a real date`);
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  const calendar = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  const realDay = calendar.getUTCFullYear() === year && calendar.getUTCMonth() + 1 === month && calendar.getUTCDate() === day;
+  const time = value.length > 10 ? value.slice(11).match(/^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-](\d{2}):(\d{2}))$/) : null;
+  const realTime = !time || (Number(time[1]) < 24 && Number(time[2]) < 60 && Number(time[3]) < 60 && (time[4] === 'Z' || (Number(time[5]) < 24 && Number(time[6]) < 60)));
+  if (!realDay || !realTime || Number.isNaN(date.getTime())) throw new RangeError(`${label} must be a real calendar date`);
   return date;
 }
-const isoMidnight = (value) => (value.length === 10 ? `${value}T00:00:00Z` : value);
 
 export const GROUPS = [
   'Check what your AI writes',
@@ -88,6 +102,51 @@ const SCORERS = {
   },
 };
 
+function validateRanking(input) {
+  if (!Object.hasOwn(RANKERS, input.ranker)) throw new TypeError('Choose a listed ranker.');
+  validateCandidates(input.candidates);
+}
+function validateCandidates(candidates) {
+  if (!Array.isArray(candidates) || !candidates.length) throw new TypeError('Supply at least one candidate.');
+  const ids = new Set();
+  for (const c of candidates) {
+    if (!c || typeof c.id !== 'string' || !c.id.trim() || ids.has(c.id)) throw new TypeError('Candidate IDs must be nonempty, unique strings.');
+    if (typeof c.score !== 'number' || !Number.isFinite(c.score)) throw new TypeError('Candidate scores must be finite numbers.');
+    if (typeof c.payoutRateBps !== 'number' || !Number.isFinite(c.payoutRateBps) || c.payoutRateBps < 0) throw new TypeError('Candidate payouts must be finite, nonnegative numbers.');
+    ids.add(c.id);
+  }
+}
+function validateScoring(input) {
+  if (!Object.hasOwn(SCORERS, input.scorer)) throw new TypeError('Choose a listed scorer.');
+  validateDecisionData(input.applicant, input.zips);
+}
+function validateDecisionData(a, zips) {
+  if (!a || typeof a.income !== 'number' || !Number.isFinite(a.income) || a.income < 0) throw new TypeError('Applicant income must be a finite, nonnegative number.');
+  if (typeof a.zip !== 'string' || !/^\d{5}$/.test(a.zip) || !Array.isArray(zips) || !zips.length || zips.some((zip) => typeof zip !== 'string' || !/^\d{5}$/.test(zip))) throw new TypeError('Supply five-digit zip strings for the applicant and each variation.');
+}
+function invarianceFailureHeadline(subject, result, count) {
+  const vacuous = result.vacuous.length;
+  const tested = count - vacuous;
+  const headline = `${subject} in ${result.failures.length} of ${plural(tested, vacuous ? 'tested scenario' : 'scenario')}.`;
+  return vacuous
+    ? `${headline} ${plural(vacuous, 'scenario')} did not change the input and ${vacuous === 1 ? 'was' : 'were'} not tested.`
+    : headline;
+}
+
+function simulateTampering(chain, tamper) {
+  let stored = JSON.parse(JSON.stringify(chain));
+  let simulation = null;
+  if (tamper === 'Change a field in entry 1') {
+    if (stored[1]) stored[1].payload = { ...stored[1].payload, amountUsd: 400 };
+    else simulation = 'Tampering was not simulated: entry 1 does not exist.';
+  }
+  if (tamper === 'Delete the last entry') {
+    if (stored.length) stored = stored.slice(0, -1);
+    else simulation = 'Tampering was not simulated: the log is empty.';
+  }
+  return { stored, simulation };
+}
+
 /** A function's source, re-indented to start at column 0. */
 function source(fn) {
   const lines = fn.toString().split('\n');
@@ -105,8 +164,8 @@ export const KITS = [
     version: '0.2.1',
     group: GROUPS[0],
     name: 'Citations',
-    question: 'Does each sentence cite evidence that actually says it?',
-    limit: 'Checks citation structure and wording overlap. It does not decide whether the evidence itself is true.',
+    question: 'Do sentences cite known evidence with sufficient wording overlap?',
+    limit: 'This heuristic can miss contradictions and changed numbers. It does not verify semantic support or factual truth.',
     fields: [
       { key: 'text', label: 'Text your AI wrote', kind: 'text', rows: 6 },
       { key: 'evidence', label: 'Evidence it was given (id → text)', kind: 'json', rows: 6 },
@@ -142,7 +201,7 @@ export const KITS = [
     run(kit, input) {
       const result = kit.classifyDocument(input.text, input.evidence);
       const look = {
-        grounded: ['ok', 'Backed by its citation', null],
+        grounded: ['ok', 'Passed the wording-overlap rule', null],
         placeholder: ['info', 'Honestly marked as needing a source', 'Find a source before publishing, or keep the gap visible to readers.'],
         ungrounded: ['warn', 'Makes a claim with no citation', 'Cite the evidence that supports it, or mark it [citation needed].'],
         invalid: ['bad', 'Bad citation', 'Point the citation at evidence that says this, or rewrite the sentence to match the evidence.'],
@@ -155,7 +214,7 @@ export const KITS = [
           const missing = s.citedIds.filter((id) => !known.has(id));
           detail = missing.length
             ? `Cites ${missing.join(', ')}, which ${missing.length === 1 ? 'is' : 'are'} not in the evidence.`
-            : `Cites ${s.citedIds.join(', ')}, but that evidence does not say this.`;
+            : 'At least one cited source failed the wording-overlap rule.';
         }
         return { mark, title: clip(s.sentence), detail, fix };
       });
@@ -163,13 +222,13 @@ export const KITS = [
       const tone = invalid > 0 ? 'fail' : ungrounded > 0 ? 'warn' : 'pass';
       const headline = result.isClean
         ? `Structurally clean: ${plural(result.sentences.length, 'sentence')} checked, ${plural(placeholder, 'honest gap')}.`
-        : `Not ready to ship: ${plural(invalid, 'bad citation')}, ${plural(ungrounded, 'uncited claim')}.`;
+        : `Citation issues: ${plural(invalid, 'bad citation')}, ${plural(ungrounded, 'uncited claim')}.`;
       const viz = {
         type: 'threads',
         sentences: result.sentences.map((s) => ({ status: s.status, citedIds: s.citedIds, validIds: s.validIds })),
         evidenceIds: Object.keys(input.evidence),
       };
-      return { tone, headline, summary: `${grounded} backed · ${placeholder} marked · ${ungrounded} uncited · ${invalid} bad`, rows, viz, raw: result };
+      return { tone, headline, summary: `${grounded} passed overlap · ${placeholder} marked · ${ungrounded} uncited · ${invalid} bad`, rows, viz, raw: result };
     },
     snippet: (input) => `import { classifyDocument } from 'grounding-kit';
 
@@ -219,7 +278,7 @@ if (!result.isClean) process.exitCode = 1;
     run(kit, input) {
       const offenses = kit.validateClaims(input.claims);
       const fixes = {
-        certainty_phrase_without_backing_tier: 'Soften the wording (for example “we estimate”) or move the claim to a tier that backs it.',
+        certainty_phrase_without_backing_tier: 'Soften the wording, or perform the verification the wording claims and record its source before setting the appropriate tier.',
         missing_source_ref: 'Add a sourceRef that says what the claim was checked against.',
         unrecognized_tier: 'Tag the claim as verified, modeled or editorial.',
       };
@@ -255,8 +314,8 @@ if (offenses.length > 0) process.exitCode = 1;
     version: '0.2.1',
     group: GROUPS[0],
     name: 'Evidence strength',
-    question: 'How strong is the evidence for a claim, and which way does it point?',
-    limit: 'Counts distinct sources you name. It cannot tell whether those sources are really independent.',
+    question: 'Which way do the supplied source votes point under these rules?',
+    limit: 'Counts the source votes you supply. It does not inspect the evidence or verify source independence.',
     fields: [
       { key: 'coverage', label: 'How much of the evidence you looked at: strong, partial or thin', kind: 'line' },
       { key: 'signals', label: 'What each source said', kind: 'json', rows: 11 },
@@ -302,12 +361,12 @@ if (offenses.length > 0) process.exitCode = 1;
         detail: `${s.kind} evidence. ${s.detail}`,
       }));
       const direction = {
-        supports: 'The evidence supports the claim',
-        contradicts: 'The evidence contradicts the claim',
-        mixed: 'The evidence is split',
-        none: 'There is no evidence either way',
+        supports: 'Supplied source votes support the claim',
+        contradicts: 'Supplied source votes contradict the claim',
+        mixed: 'Supplied source votes are split',
+        none: 'No supplied source votes point either way',
       }[result.direction];
-      if (result.direction === 'contradicts') rows.push({ mark: 'bad', title: 'Correct or withdraw the claim', detail: 'The evidence points the other way.', fix: 'Update the claim to match the evidence, or remove it.' });
+      if (result.direction === 'contradicts') rows.push({ mark: 'bad', title: 'Correct or withdraw the claim', detail: 'The supplied votes point the other way.', fix: 'Update the claim to match the evidence, or remove it.' });
       else if (result.verdict !== 'confirmed') rows.push({ mark: 'skip', title: 'Not confirmed yet', detail: `Coverage is ${result.coverage}.`, fix: 'Look at more of the evidence, and add a non-textual check (an API, a schema or observed behavior) before calling it confirmed.' });
       const tone = result.direction === 'contradicts' ? 'fail' : result.direction === 'supports' && result.verdict === 'confirmed' ? 'pass' : 'warn';
       return {
@@ -337,8 +396,8 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
     version: '0.3.1',
     group: GROUPS[1],
     name: 'Claims on your site',
-    question: 'Is every public claim still backed by evidence someone checked recently?',
-    limit: 'Checks that a claim points at evidence and that it was reviewed recently, not that the evidence still holds.',
+    question: 'Which supplied claims meet the evidence-reference and review-date rules?',
+    limit: 'Does not inspect evidence or verify that a review happened. Checks reference presence and the supplied review date.',
     fields: [
       { key: 'now', label: 'Today (fixed so results are repeatable)', kind: 'line' },
       { key: 'maxAgeDays', label: 'Re-check claims every N days', kind: 'line' },
@@ -374,23 +433,23 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
       const maxAgeDays = Number(input.maxAgeDays);
       const report = kit.generateClaimsReport(input.claims, maxAgeDays, now);
       const rows = [
-        ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), detail: 'No evidence linked. Nothing backs this claim.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
-        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), detail: c.ageDays === null ? 'The review date could not be read.' : `Last checked ${c.ageDays} days ago. Due for a re-check.`, fix: 'Re-check the evidence and update verifiedAt.' })),
-        ...report.current.map((c) => ({ mark: 'ok', title: clip(c.text), detail: `Checked ${c.ageDays} days ago.` })),
+        ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), detail: 'No evidence reference supplied.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
+        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), detail: c.ageDays === null ? 'The review date could not be read.' : `Reported review date: ${c.ageDays} days ago. Due for a re-check.`, fix: 'Re-check the evidence and update verifiedAt.' })),
+        ...report.current.map((c) => ({ mark: 'ok', title: clip(c.text), detail: `Reported review date: ${c.ageDays} days ago.` })),
       ];
       const { current, stale, unverified, total } = report.counts;
       const tone = unverified ? 'fail' : stale ? 'warn' : 'pass';
       const headline = unverified || stale
-        ? `${plural(unverified, 'claim')} with no evidence, ${stale} overdue for a check.`
-        : `All ${plural(total, 'claim')} are backed and recently checked.`;
+        ? `${plural(unverified, 'claim')} with no evidence reference, ${stale} outside the review-date rule.`
+        : `All ${total} supplied claims meet the reference-presence and review-date rules.`;
       const mark = (c) => (report.unverified.includes(c) ? 'bad' : report.stale.includes(c) ? 'warn' : 'ok');
       const items = [...report.current, ...report.stale, ...report.unverified].map((c) => ({ label: c.id, ageDays: c.ageDays, mark: mark(c) }));
       return {
         tone,
         headline,
-        summary: `${current} current · ${stale} stale · ${unverified} unverified`,
+        summary: `${current} current · ${stale} stale · ${unverified} missing references. Clock used: ${now.toISOString()}. Review window used: ${maxAgeDays} days.`,
         rows,
-        viz: { type: 'timeline', items, thresholds: [{ days: maxAgeDays, label: `re-check after ${maxAgeDays}d` }], unit: 'days since last checked' },
+        viz: { type: 'timeline', items, thresholds: [{ days: maxAgeDays, label: `re-check after ${maxAgeDays}d` }], unit: 'days since reported review' },
         raw: report,
       };
     },
@@ -398,7 +457,7 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
 
 const claims = ${js(input.claims)};
 
-const report = generateClaimsReport(claims, ${Number(input.maxAgeDays)}, new Date(${js(isoMidnight(input.now))})); // drop the date to use today
+const report = generateClaimsReport(claims, ${Number(input.maxAgeDays)}, strictDate(${js(input.now)}, 'Today')); // drop the date to use today
 console.log(formatClaimsReportAsText(report));
 
 // Fail the build when a claim has no evidence or is overdue for a check.
@@ -454,6 +513,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
       return {
         tone,
         headline,
+        summary: `Clock used: ${now.toISOString()}.`,
         rows,
         viz: {
           type: 'timeline',
@@ -468,7 +528,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
 
 const config = ${js(input.config)};
 const pages = ${js(input.pages)};
-const now = new Date(${js(isoMidnight(input.now))}); // drop this to use today
+const now = strictDate(${js(input.now)}, 'Today'); // drop this to use today
 
 let stale = 0;
 for (const p of pages) {
@@ -519,24 +579,26 @@ if (stale > 0) process.exitCode = 1;
       },
     ],
     run(kit, input) {
-      const rank = RANKERS[input.ranker] ?? RANKERS['Ranks by quality score only'];
+      validateRanking(input);
+      const rank = RANKERS[input.ranker];
       const scenarios = PAYOUT_SCENARIOS;
       const result = kit.assertPayoutInvariance(rank, { candidates: input.candidates }, scenarios);
       const rows = scenarios.map((s) => {
         const failure = result.failures.find((f) => f.scenario === s.name);
+        if (result.vacuous.includes(s.name)) return { mark: 'skip', title: `If ${s.name}`, detail: 'Scenario did not change the input.', fix: 'Choose a variation different from the baseline.' };
         return failure
           ? { mark: 'bad', title: `If ${s.name}`, detail: `Ranking changed to ${failure.actual?.orderedIds?.join(' → ') ?? 'a different order'}.`, fix: 'Take payout fields out of the ranking path, or label paid placements clearly.' }
           : { mark: 'ok', title: `If ${s.name}`, detail: 'Ranking stayed the same.' };
       });
       const columns = scenarios.map((s) => {
         const failure = result.failures.find((f) => f.scenario === s.name);
-        return { label: s.name, short: s.short, order: failure?.actual?.orderedIds ?? result.baseline.orderedIds, changed: Boolean(failure) };
+        return { label: s.name, short: s.short, order: failure?.actual?.orderedIds ?? result.baseline.orderedIds, changed: Boolean(failure), vacuous: result.vacuous.includes(s.name) };
       });
       return {
         tone: result.passed ? 'pass' : 'fail',
         headline: result.passed
-          ? `Rankings ignored payout in all ${plural(scenarios.length, 'scenario')}.`
-          : `Rankings moved with payout in ${result.failures.length} of ${plural(scenarios.length, 'scenario')}.`,
+          ? `Rankings stayed the same in all ${plural(scenarios.length, 'scenario')}.`
+          : invarianceFailureHeadline('Rankings moved with payout', result, scenarios.length),
         summary: `Base order: ${result.baseline.orderedIds.join(' → ')}`,
         rows,
         viz: { type: 'slope', base: result.baseline.orderedIds, columns },
@@ -546,15 +608,18 @@ if (stale > 0) process.exitCode = 1;
     snippet: (input) => `import { assertPayoutInvariance } from 'payout-invariance-kit';
 
 // Your real ranking code goes here.
-${source(RANKERS[input.ranker] ?? RANKERS['Ranks by quality score only'])}
+${source(RANKERS[input.ranker])}
 
 const baseInput = { candidates: ${js(input.candidates)} };
 
+validateCandidates(baseInput.candidates);
+
 const result = assertPayoutInvariance(rank, baseInput, ${scenariosSource()});
 for (const f of result.failures) console.log(\`changed when \${f.scenario}\`);
-console.log(result.passed ? 'ranking ignored payout in every scenario' : \`\${result.failures.length} scenario(s) changed the ranking\`);
+for (const name of result.vacuous) console.log(\`not tested: \${name} did not change the input\`);
+console.log(result.passed ? 'ranking stayed the same in every tested scenario' : \`\${result.failures.length} scenario(s) changed the ranking; \${result.vacuous.length} not tested\`);
 
-// Fail the build when payout changes the ranking.
+// Fail the build when payout changes the ranking or a scenario changes no input.
 if (!result.passed) process.exitCode = 1;
 `,
   },
@@ -577,22 +642,25 @@ if (!result.passed) process.exitCode = 1;
       { label: 'Peeks at zip code', input: { scorer: 'Also peeks at zip code', applicant: { name: 'Applicant', zip: '68102', income: 85000 }, zips: ['02138', '90210', '38652'] } },
     ],
     run(kit, input) {
-      const score = SCORERS[input.scorer] ?? SCORERS['Looks at income only'];
+      validateScoring(input);
+      const score = SCORERS[input.scorer];
       const scenarios = input.zips.map((zip) => ({ name: `zip code ${zip}`, mutate: (app) => ({ ...app, zip }) }));
       const result = kit.assertInvariance(score, input.applicant, scenarios);
       const variants = scenarios.map((s) => {
         const failure = result.failures.find((f) => f.scenario === s.name);
-        return { label: s.name.replace('zip code ', ''), value: failure ? failure.actual?.rateBps : result.baseline.rateBps, changed: Boolean(failure) };
+        return { label: s.name.replace('zip code ', ''), value: failure ? failure.actual?.rateBps : result.baseline.rateBps, changed: Boolean(failure), vacuous: result.vacuous.includes(s.name) };
       });
       const rows = scenarios.map((s, i) =>
-        variants[i].changed
+        variants[i].vacuous
+          ? { mark: 'skip', title: `With ${s.name}`, detail: 'Scenario did not change the input.', fix: 'Choose a variation different from the baseline.' }
+          : variants[i].changed
           ? { mark: 'bad', title: `With ${s.name}`, detail: `Decision changed: rate ${variants[i].value} bps instead of ${result.baseline.rateBps}.`, fix: 'Remove the field from the decision, or document why it is allowed.' }
           : { mark: 'ok', title: `With ${s.name}`, detail: 'Same decision.' });
       return {
         tone: result.passed ? 'pass' : 'fail',
         headline: result.passed
           ? `Same decision for all ${plural(scenarios.length, 'zip code')}.`
-          : `The decision changed with zip code in ${result.failures.length} of ${plural(scenarios.length, 'case')}.`,
+          : invarianceFailureHeadline('The decision changed with zip code', result, scenarios.length),
         summary: `Base decision: approved=${result.baseline.approved}, rate ${result.baseline.rateBps} bps`,
         rows,
         viz: { type: 'bars', unit: 'bps', baseline: { label: `base ${input.applicant.zip}`, value: result.baseline.rateBps }, bars: variants },
@@ -602,16 +670,20 @@ if (!result.passed) process.exitCode = 1;
     snippet: (input) => `import { assertInvariance } from 'mutation-invariance-kit';
 
 // Your real decision code goes here.
-${source(SCORERS[input.scorer] ?? SCORERS['Looks at income only'])}
+${source(SCORERS[input.scorer])}
 
 const applicant = ${js(input.applicant)};
-const scenarios = ${js(input.zips)}.map((zip) => ({ name: \`zip code \${zip}\`, mutate: (app) => ({ ...app, zip }) }));
+const zips = ${js(input.zips)};
+const scenarios = zips.map((zip) => ({ name: \`zip code \${zip}\`, mutate: (app) => ({ ...app, zip }) }));
+
+validateDecisionData(applicant, zips);
 
 const result = assertInvariance(score, applicant, scenarios);
 for (const f of result.failures) console.log(\`decision changed with \${f.scenario}\`);
-console.log(result.passed ? 'same decision in every scenario' : \`\${result.failures.length} scenario(s) changed the decision\`);
+for (const name of result.vacuous) console.log(\`not tested: \${name} did not change the input\`);
+console.log(result.passed ? 'same decision in every scenario' : \`\${result.failures.length} scenario(s) changed the decision; \${result.vacuous.length} not tested\`);
 
-// Fail the build when a field the decision should ignore changes it.
+// Fail the build when a variation changes the decision or changes no input.
 if (!result.passed) process.exitCode = 1;
 `,
   },
@@ -622,7 +694,7 @@ if (!result.passed) process.exitCode = 1;
     version: '0.2.0',
     group: GROUPS[2],
     name: 'Did the advice work?',
-    question: 'After someone followed a recommendation, did the problem actually get better?',
+    question: 'Does the recommendation meet the holding rules in the supplied readings?',
     limit: 'Compares the windows before and after the decision. It shows an association, not that the advice caused the change.',
     fields: [
       { key: 'recommendation', label: 'The recommendation', kind: 'json', rows: 6 },
@@ -660,18 +732,26 @@ if (!result.passed) process.exitCode = 1;
         title: `${label}: bad in ${w.bad} of ${w.observations}`,
         detail: w.observations ? `Bad rate ${Math.round(w.badRate * 100)}%.` : 'No readings in this window.',
       });
-      const rows = [window('Before the decision', grade.baseline), window('After (where the advice applied)', grade.result)];
-      if (grade.verdict === 'not-holding') rows.push({ mark: 'bad', title: 'The problem got worse after the advice', detail: 'More bad readings after the decision than before.', fix: 'Revisit the recommendation before applying it anywhere else.' });
-      if (grade.refusalCodes.length) rows.push({ mark: 'skip', title: 'Not enough evidence to grade', detail: grade.refusalCodes.join(', '), fix: 'Collect more readings before and after the decision.' });
+      const structuralFixes = {
+        decision_recommendation_mismatch: 'Make decision.recommendationId match the supplied recommendation.',
+        no_gradeable_check_key: 'Supply a nonempty recommendation.checkKey.',
+        basis_not_gradeable: 'Supply an observed basis that meets the configured rule.',
+      };
+      const structural = grade.refusalCodes.some((code) => Object.hasOwn(structuralFixes, code));
+      const rows = structural ? [] : [window('Before the decision', grade.baseline), window('After (where the advice applied)', grade.result)];
+      if (grade.verdict === 'not-holding') rows.push({ mark: 'bad', title: 'The recommendation failed the configured holding rules.', detail: grade.result.bad >= grade.thresholds.refuteThreshold
+        ? `The exposed bad count (${grade.result.bad}) reached the refute threshold (${grade.thresholds.refuteThreshold}).`
+        : 'The exposed bad rate was higher than the baseline rate.', fix: 'Revisit the recommendation before applying it anywhere else.' });
+      for (const code of grade.refusalCodes) rows.push({ mark: 'skip', title: structural ? 'The supplied record could not be graded.' : 'Not enough evidence to grade', detail: code, fix: structuralFixes[code] ?? 'Collect more readings before and after the decision.' });
       const tone = grade.verdict === 'holding' ? 'pass' : grade.verdict === 'not-holding' ? 'fail' : 'warn';
-      const label = { holding: 'The advice is holding up', 'not-holding': 'The advice is not holding up', refused: 'Not enough evidence to say' }[grade.verdict] ?? grade.verdict;
+      const label = { holding: 'The recommendation meets the configured holding rules', 'not-holding': 'The recommendation failed the configured holding rules', refused: 'Not enough evidence to say' }[grade.verdict] ?? grade.verdict;
       const pct = (w) => (w.observations ? w.badRate : null);
       return {
         tone,
-        headline: `${label}.`,
+        headline: structural ? 'The supplied record could not be graded.' : `${label}.`,
         summary: kit.describeGrade(grade),
         rows,
-        viz: { type: 'bars', unit: '%', percent: true, bars: [{ label: 'before', value: pct(grade.baseline), changed: false }, { label: 'after', value: pct(grade.result), changed: grade.verdict === 'not-holding' }] },
+        viz: structural ? null : { type: 'bars', unit: '%', percent: true, bars: [{ label: 'before', value: pct(grade.baseline), changed: false }, { label: 'after', value: pct(grade.result), changed: grade.verdict === 'not-holding' }] },
         raw: grade,
       };
     },
@@ -735,21 +815,21 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
       const look = 'Read these reviews yourself before trusting the score.';
       const rows = [
         { mark: result.flags.lowSourceCount ? 'warn' : 'ok', title: result.flags.lowSourceCount ? 'Evidence comes from very few source types' : 'Evidence spans several source types', detail: `${plural(result.sourceCount, 'distinct source type')}. Independence is not verified.`, fix: result.flags.lowSourceCount ? look : null },
-        { mark: result.flags.uniformSentiment ? 'warn' : 'ok', title: result.flags.uniformSentiment ? 'Sentiment is unusually uniform' : 'Sentiment varies the way real opinions do', detail: 'Near-maximal sentiment with almost no variance is one cheap pattern worth a human look.', fix: result.flags.uniformSentiment ? look : null },
+        { mark: result.flags.uniformSentiment ? 'warn' : 'ok', title: result.flags.uniformSentiment ? 'Sentiment is unusually uniform' : 'The extreme uniform-sentiment pattern was not flagged', detail: 'Near-maximal sentiment with almost no variance is one cheap pattern worth a human look.', fix: result.flags.uniformSentiment ? look : null },
         { mark: result.eligibleSignalCount === result.signalCount ? 'ok' : 'skip', title: `${result.eligibleSignalCount} of ${plural(result.signalCount, 'review')} carried weight`, detail: 'Zero confidence, an unlisted source or fully decayed age gives a review no weight.', fix: result.eligibleSignalCount === result.signalCount ? null : 'Use sources listed in your config, with confidence above 0.' },
       ];
       const viz = { type: 'dial', score: result.trustScore, confidence: result.confidence.level, flags: result.flags };
       if (result.trustScore === null) {
-        return { tone: 'info', headline: 'No score: there is not enough weighted evidence to say anything.', summary: result.explanation, rows: rows.slice(2), viz, raw: result };
+        return { tone: 'info', headline: 'No score: there is not enough weighted evidence to say anything.', summary: `${result.explanation} Clock used: ${now}.`, rows: rows.slice(2), viz, raw: result };
       }
       const tone = result.flags.lowSourceCount || result.flags.uniformSentiment ? 'warn' : 'pass';
-      return { tone, headline: `Heuristic score ${result.trustScore}/100 (${result.confidence.level} confidence).`, summary: result.explanation, rows, viz, raw: result };
+      return { tone, headline: `Heuristic score ${result.trustScore}/100 (${result.confidence.level} confidence).`, summary: `${result.explanation} Clock used: ${now}.`, rows, viz, raw: result };
     },
     snippet: (input) => `import { anonymous } from 'trust-core';
 
 const reviews = ${js(input.reviews)};
 
-const result = anonymous.assessAuthenticity(reviews, anonymous.resolveAnonymousConfig(), { now: ${js(isoMidnight(input.now))} });
+const result = anonymous.assessAuthenticity(reviews, anonymous.resolveAnonymousConfig(), { now: strictDate(${js(input.now)}, 'Today').toISOString() });
 console.log(result.trustScore === null ? 'no score' : \`score \${result.trustScore}/100\`, result.flags);
 
 // Flag the batch for a human look when either pattern shows up.
@@ -763,8 +843,8 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
     version: '0.2.0',
     group: GROUPS[3],
     name: 'Agent receipts',
-    question: 'Did your AI agent stay inside what it was allowed to do, and do its claims match reality?',
-    limit: 'Compares the agent’s report with the permission slip and the state you supply. “Accepted” means no mismatch found, not proven true.',
+    question: 'Does the agent’s report match the issued permissions and supplied state?',
+    limit: 'Checks reported actions and compared facts. It does not observe actions or detect unreported actions. Accepted means no mismatch found.',
     fields: [
       { key: 'allowed', label: 'What the agent may do and cite', kind: 'json', rows: 4 },
       { key: 'report', label: 'What the agent says it did', kind: 'json', rows: 5 },
@@ -795,12 +875,12 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
       const rows = [
         ...(result.packetMismatch ? [{ mark: 'bad', title: 'The report answers a different permission slip', detail: 'Its packet id does not match.', fix: 'Reject the report and re-run the agent with the right packet.' }] : []),
         ...result.claimProblems.map((p) => ({ mark: 'bad', title: 'The report itself is malformed', detail: p, fix: 'Reject the report; ask the agent to report in the expected shape.' })),
-        ...result.unauthorizedActions.map((a) => ({ mark: 'bad', title: `Did something it was not allowed to: ${a}`, detail: 'Not in the permission slip.', fix: 'Undo or block the action, and tighten what the agent may do.' })),
+        ...result.unauthorizedActions.map((a) => ({ mark: 'bad', title: `Reported an unauthorized action: ${a}.`, detail: 'Not in the permission slip.', fix: 'Check whether the reported action occurred. Block unauthorized actions and tighten permissions.' })),
         ...result.droppedEvidenceIds.map((e) => ({ mark: 'bad', title: `Cited evidence it was not given: ${e}`, detail: 'Not in the evidence list, so it was dropped.', fix: 'Only accept evidence you handed the agent.' })),
         ...result.contradictions.map((c) => ({ mark: 'bad', title: `Says ${c.key} is ${JSON.stringify(c.claimedFact)}`, detail: `You see ${JSON.stringify(c.currentFact)}.`, fix: 'Trust your own read of the state over the agent’s report.' })),
         ...result.coverage.uncheckedFactKeys.map((k) => ({ mark: 'skip', title: `Not checked: ${k}`, detail: 'Your state did not include this fact.', fix: 'Add this fact to your own check so it can be compared.' })),
       ];
-      if (!rows.some((r) => r.mark === 'bad')) rows.unshift({ mark: 'ok', title: 'Every action was allowed and every checked fact matched', detail: `${result.coverage.comparedFactCount} of ${result.coverage.claimedFactCount} claimed facts compared.` });
+      if (!rows.some((r) => r.mark === 'bad')) rows.unshift({ mark: 'ok', title: 'Every reported action was authorized; every compared fact matched.', detail: `${result.coverage.comparedFactCount} of ${result.coverage.claimedFactCount} claimed facts compared.` });
       const unauthorized = new Set(result.unauthorizedActions);
       return {
         tone: result.accepted ? 'pass' : 'fail',
@@ -822,7 +902,7 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
     snippet: (input) => `import { issuePacket, verifyReceipt } from 'agent-receipt-kit';
 
 // 1. Before the agent runs: what it may do and cite.
-const packet = issuePacket({ task: 'shopping' }, 'local', ${js(input.allowed.actions)}, ${js(input.allowed.evidenceIds)});
+const packet = issuePacket({ task: 'shopping demo' }, 'local', ${js(input.allowed.actions)}, ${js(input.allowed.evidenceIds)}, { id: 'pkt-demo', issuedAt: '2026-10-01T09:00:00.000Z' });
 
 // 2. What the agent reports back (untrusted input).
 const claim = { packetId: packet.id, ...${js(input.report)} };
@@ -879,9 +959,7 @@ if (!result.accepted) process.exitCode = 1;
       for (const payload of input.entries) chain = await kit.appendEntry(chain, payload);
       const last = chain[chain.length - 1];
       const anchor = last ? { index: last.index, entryHash: last.entryHash } : undefined;
-      let stored = JSON.parse(JSON.stringify(chain));
-      if (input.tamper === 'Change a field in entry 1' && stored[1]) stored[1].payload = { ...stored[1].payload, amountUsd: 400 };
-      if (input.tamper === 'Delete the last entry') stored = stored.slice(0, -1);
+      const { stored, simulation } = simulateTampering(chain, input.tamper);
       const result = await kit.verifyChain(stored, undefined, anchor ? { anchor } : undefined);
       const brokenAt = result.valid ? null : result.brokenAtIndex ?? stored.length;
       const rows = stored.map((e) => {
@@ -895,11 +973,13 @@ if (!result.accepted) process.exitCode = 1;
           fix: broken ? 'Restore this entry from a backup and find out who could write to the log.' : null,
         };
       });
+      if (simulation) rows.push({ mark: 'skip', title: simulation, detail: 'The original log was checked.', fix: 'Supply the target entry to simulate this edit.' });
+      if (!anchor) rows.push({ mark: 'skip', title: 'No entries or anchor to verify.', detail: 'Add entries before checking an anchored log.' });
       if (brokenAt === stored.length) rows.push({ mark: 'bad', title: `#${stored.length} is missing`, detail: 'The saved anchor points at an entry that is no longer in the log.', fix: 'Restore the deleted entries from a backup.' });
       return {
-        tone: result.valid ? 'pass' : 'fail',
-        headline: result.valid ? `All ${plural(stored.length, 'entry', 'entries')} check out against the anchor.` : `Tampering detected at entry ${brokenAt}.`,
-        summary: result.reason ?? 'Every hash links to the one before it, and the last one matches the saved anchor.',
+        tone: result.valid ? (anchor ? 'pass' : 'info') : 'fail',
+        headline: !anchor ? 'No entries or anchor to verify.' : result.valid ? `All ${plural(stored.length, 'entry', 'entries')} check out against the anchor.` : `Tampering detected at entry ${brokenAt}.`,
+        summary: !anchor ? 'No anchor was created.' : result.reason ?? 'Every hash links to the one before it, and the last one matches the saved anchor.',
         rows,
         viz: {
           type: 'chain',
@@ -918,15 +998,15 @@ for (const payload of ${js(input.entries)}) chain = await appendEntry(chain, pay
 
 // Save this anchor somewhere the log's writer cannot edit.
 const last = chain[chain.length - 1];
-const anchor = { index: last.index, entryHash: last.entryHash };
+const anchor = last ? { index: last.index, entryHash: last.entryHash } : undefined;
 
-${{
-  'Change a field in entry 1': '\n// Simulated tampering, as in the playground: someone edits entry 1 in storage.\nchain = JSON.parse(JSON.stringify(chain));\nchain[1].payload.amountUsd = 400;\n',
-  'Delete the last entry': '\n// Simulated tampering, as in the playground: someone deletes the last entry.\nchain = chain.slice(0, -1);\n',
-}[input.tamper] ?? ''}
+${source(simulateTampering)}
+const { stored, simulation } = simulateTampering(chain, ${js(input.tamper)});
+if (simulation) console.log(simulation);
+
 // Later: load the stored log and verify it against the anchor.
-const result = await verifyChain(chain, undefined, { anchor });
-console.log(result.valid ? 'log intact' : result.reason);
+const result = await verifyChain(stored, undefined, anchor ? { anchor } : undefined);
+console.log(!anchor ? 'No entries or anchor to verify.' : result.valid ? 'log intact' : result.reason);
 
 // Fail the build when the log was changed after the fact.
 if (!result.valid) process.exitCode = 1;
@@ -938,9 +1018,9 @@ if (!result.valid) process.exitCode = 1;
     id: 'cost-governor-kit',
     version: '0.2.0',
     group: GROUPS[4],
-    name: 'AI spend cap',
-    question: 'Will the next model call push you over your budget?',
-    limit: 'Prices calls with the rates you supply and estimates the next call before it runs. It is not a billing system.',
+    name: 'Estimated AI spend',
+    question: 'Does the estimated next-call cost fit the supplied budget?',
+    limit: 'Uses the token counts and prices you supply. Actual usage and concurrent spending are not capped by this demo.',
     fields: [
       { key: 'rates', label: 'Your model’s prices, USD per million tokens', kind: 'json', rows: 4 },
       { key: 'budget', label: 'Spent so far and your ceiling, USD', kind: 'json', rows: 4 },
@@ -956,12 +1036,12 @@ if (!result.valid) process.exitCode = 1;
       const usd = (n) => `$${n.toFixed(4)}`;
       const rows = [
         { mark: 'info', title: `Next call is about ${usd(next)}`, detail: `At $${input.rates.inputPerMillion}/M input and $${input.rates.outputPerMillion}/M output. Cache reads are priced at 0.1x input unless you set your own rate.` },
-        { mark: check.allowed ? 'ok' : 'bad', title: `Projected total ${usd(check.projectedTotalUsd)} of a ${usd(input.budget.ceilingUsd)} ceiling`, detail: check.allowed ? 'Under the ceiling, so the call may go ahead.' : 'Over the ceiling, so the call should not be made.', fix: check.allowed ? null : 'Skip or shrink the call, or raise the ceiling on purpose.' },
+        { mark: check.allowed ? 'ok' : 'bad', title: `Projected total ${usd(check.projectedTotalUsd)} of a ${usd(input.budget.ceilingUsd)} ceiling`, detail: check.allowed ? 'The estimate is at or below the ceiling.' : 'The estimate is over the ceiling.', fix: check.allowed ? null : 'Skip or shrink the call, or raise the ceiling on purpose.' },
       ];
       return {
         tone: check.allowed ? 'pass' : 'fail',
-        headline: check.allowed ? 'Go ahead: the next call fits in the budget.' : 'Stop: the next call would go over budget.',
-        summary: `Projected ${usd(check.projectedTotalUsd)} = spent ${usd(input.budget.spentSoFarUsd)} + next call ${usd(next)}, ${check.allowed ? 'under' : 'over'} the ${usd(input.budget.ceilingUsd)} ceiling.`,
+        headline: check.allowed ? 'The estimate fits the budget.' : 'The estimate exceeds the budget.',
+        summary: `Projected ${usd(check.projectedTotalUsd)} = spent ${usd(input.budget.spentSoFarUsd)} + next call ${usd(next)}, ${check.allowed ? 'at or below' : 'over'} the ${usd(input.budget.ceilingUsd)} ceiling.`,
         rows,
         viz: { type: 'budget', spent: input.budget.spentSoFarUsd, next, ceiling: input.budget.ceilingUsd, allowed: check.allowed },
         raw: check,
@@ -972,18 +1052,55 @@ if (!result.valid) process.exitCode = 1;
 const rates = ${js(input.rates)}; // check these against current prices
 
 const check = checkPreCallCeiling({
-  spentSoFarUsd: ${input.budget.spentSoFarUsd},
-  ceilingUsd: ${input.budget.ceilingUsd},
+  spentSoFarUsd: ${js(input.budget.spentSoFarUsd)},
+  ceilingUsd: ${js(input.budget.ceilingUsd)},
   estimatedNextCallUsage: ${js(input.nextCall).replace(/\n/g, '\n  ')},
   rates,
 });
-console.log(check.allowed ? 'ok to call' : check.reason);
+console.log(check.allowed ? 'The estimate fits the budget.' : check.reason);
 
 // Refuse the call (or fail the job) when it would go over budget.
 if (!check.allowed) process.exitCode = 1;
 `,
   },
 ];
+
+// CI exit rules are explicit because some playground warnings also fail CI.
+const CI_RULES = {
+  'grounding-kit': 'CI exits 1 for bad or missing citations. Placeholder gaps do not fail CI.',
+  'claims-registry-kit': 'CI exits 1 for missing references or stale dates, including playground warnings.',
+  'corroboration-kit': 'CI exits 1 unless direction is supports and verdict is confirmed, including playground warnings.',
+  'freshness-kit': 'CI exits 1 for stale pages. Aging warnings do not fail CI.',
+  'advice-ledger-kit': 'CI exits 1 for not-holding. Refused grades are warnings and do not fail CI.',
+  'trust-core': 'CI exits 1 for either flagged pattern, including playground warnings. No-score results alone do not fail CI.',
+  'provenance-kit': 'CI exits 1 for any wording offense under these rules.',
+  'payout-invariance-kit': 'CI exits 1 for a changed ranking or a scenario that did not change the input.',
+  'mutation-invariance-kit': 'CI exits 1 for a changed decision or a scenario that did not change the input.',
+  'agent-receipt-kit': 'CI exits 1 when the supplied receipt is rejected.',
+  'audit-chain-kit': 'CI exits 1 when chain verification fails. An empty log has no anchor to check and exits 0.',
+  'cost-governor-kit': 'CI exits 1 when the estimated cost exceeds the supplied budget.',
+};
+for (const demo of KITS) {
+  demo.ciRule = CI_RULES[demo.id];
+  const snippet = demo.snippet;
+  demo.snippet = (input) => {
+    let validation = '';
+    if (['claims-registry-kit', 'freshness-kit', 'trust-core'].includes(demo.id)) validation = source(strictDate);
+    if (demo.id === 'payout-invariance-kit') {
+      if (!Object.hasOwn(RANKERS, input.ranker)) throw new TypeError('Choose a listed ranker.');
+      validation = source(validateCandidates);
+    }
+    if (demo.id === 'mutation-invariance-kit') {
+      if (!Object.hasOwn(SCORERS, input.scorer)) throw new TypeError('Choose a listed scorer.');
+      validation = source(validateDecisionData);
+    }
+    const code = snippet(input);
+    const withValidation = validation
+      ? code.replace(/^(import [^\n]+;\n)/m, `$1\n${validation}\n`)
+      : code;
+    return `// ${demo.ciRule}\n${withValidation}`;
+  };
+}
 
 /** The MCP server that wraps eleven of the kits for AI coding agents. */
 export const MCP = {
@@ -1039,7 +1156,9 @@ const fromBase64Url = (token) => {
 export function encodeExample(kit, input) {
   const picked = {};
   for (const field of kit.fields) picked[field.key] = input[field.key];
-  return toBase64Url(JSON.stringify({ v: 1, input: picked }));
+  const token = toBase64Url(JSON.stringify({ v: 1, input: picked }));
+  if (token.length > MAX_TOKEN) throw new RangeError('This example is too large to share in a link.');
+  return token;
 }
 
 /** Decode a link fragment back into a kit input, or null when it does not fit the kit. */

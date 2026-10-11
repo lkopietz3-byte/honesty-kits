@@ -117,9 +117,12 @@ function go(id) {
 
 // --------------------------------------------------------------- selection
 function selectKit(id, sharedInput = null) {
+  $('link-status').hidden = true;
   const kit = KITS.find((k) => k.id === id) ?? KITS[0];
+  hideCode();
   state.kit = kit;
   state.result = null;
+  state.input = null;
   for (const k of KITS) $(`nav-${k.id}`)?.removeAttribute('aria-current');
   $(`nav-${kit.id}`)?.setAttribute('aria-current', 'page');
   $('kit-select').value = kit.id;
@@ -143,12 +146,23 @@ function useInput(input) {
   run();
 }
 
-const linkFor = (input) => `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, input)}`;
-/** A link that reopens the current kit with the current (last valid) input. */
+function showLinkError(message) {
+  $('link-status').textContent = message;
+  $('link-status').hidden = false;
+}
+function linkFor(input) {
+  try {
+    const link = `${location.origin}${location.pathname}#${state.kit.id}~${encodeExample(state.kit, input)}`;
+    $('link-status').hidden = true;
+    return link;
+  }
+  catch (error) { showLinkError(error.message); return null; }
+}
+/** A link that reopens the current kit with the input currently in the fields. */
 function exampleLink() {
   const { input, errors } = readInput();
-  const use = errors.length ? state.input : input;
-  return use ? linkFor(use) : null;
+  if (errors.length) { showLinkError('Fix the input errors before sharing this example.'); return null; }
+  return linkFor(input);
 }
 
 function renderExamples() {
@@ -205,6 +219,8 @@ function renderFields(input) {
 
 function edited() {
   state.edited = true;
+  ++state.seq; // Discard any outstanding check as soon as its input changes.
+  showStale('The input changed. Waiting for the next check.');
   clearTimeout(state.debounce);
   state.debounce = setTimeout(run, 280);
 }
@@ -322,12 +338,15 @@ function setActions(enabled) {
 }
 
 function showLoading(kit) {
+  hideCode();
   $('timing').textContent = 'Loading…';
   setActions(false);
   setResult(verdictBlock('loading', `Loading ${kit.id}@${kit.version}, the published npm build.`, 'It runs in your browser. Nothing you type is sent anywhere.'));
 }
 
 function showOffline(kit) {
+  hideCode();
+  state.result = null;
   $('timing').textContent = '';
   setActions(false);
   const retry = el('button', { type: 'button', className: 'btn retry', textContent: 'Try again' });
@@ -338,19 +357,22 @@ function showOffline(kit) {
 }
 
 function showRejected(kit, error) {
+  hideCode();
   state.result = null;
   state.vizKey = '';
   $('timing').textContent = '';
   setActions(false);
   const name = error?.constructor?.name ?? 'Error';
   setResult(
-    verdictBlock('error', 'The kit refused this input.', `${name}: ${error?.message ?? String(error)}`),
+    verdictBlock('error', 'This input could not be checked.', `${name}: ${error?.message ?? String(error)}`),
     el('div', { className: 'result-body' },
-      el('p', { className: 'limit' }, 'This is deliberate. The kits reject malformed input with a clear error instead of guessing and handing back a plausible wrong answer.'),
+      el('p', { className: 'limit' }, 'Check the fields and try again. This error may come from the demo’s validation or the kit’s contract.'),
       limitNote(kit)));
 }
 
 function showStale(message) {
+  hideCode();
+  setActions(false);
   const box = $('result');
   if (!state.result) {
     setActions(false);
@@ -388,6 +410,7 @@ function drawViz(result, animate) {
 }
 
 function showResult(kit, result, ms) {
+  $('link-status').hidden = true;
   const animate = state.vizKey !== `${kit.id}|${result.tone}|${problems(result)}`;
   state.vizKey = `${kit.id}|${result.tone}|${problems(result)}`;
   state.result = result;
@@ -429,7 +452,7 @@ function showCode() {
   const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copy code' });
   copy.addEventListener('click', () => copyText(code, copy, pre));
   $('code-view').replaceChildren(
-    el('p', { className: 'code-note' }, `The same check as an ES module, built from your current input. Run it with Node 20+ after `, el('code', { textContent: `npm install ${state.kit.id}` }), '. It exits with code 1 when it finds a problem, so it can fail a CI job or block a deploy.'),
+    el('p', { className: 'code-note' }, `The same check as an ES module, built from your current input. Run it with Node 20+ after `, el('code', { textContent: `npm install ${state.kit.id}@${state.kit.version}` }), `. ${state.kit.ciRule}`),
     pre,
     copy);
   $('result').hidden = true;
@@ -437,12 +460,14 @@ function showCode() {
 }
 
 function hideCode() {
+  const wasCode = state.view === 'code';
   state.view = 'result';
   VIEW_CODE.setAttribute('aria-pressed', 'false');
   setCodeLabel(false);
   $('code-view').hidden = true;
+  $('code-view').replaceChildren();
   $('result').hidden = false;
-  if (state.result) drawViz(state.result, false);
+  if (wasCode && state.result) drawViz(state.result, false);
 }
 
 function setCodeLabel(showingCode) {
@@ -472,7 +497,7 @@ function placeActions() {
 
 function renderFoot() {
   const kit = state.kit;
-  const cmd = `npm install ${kit.id}`;
+  const cmd = `npm install ${kit.id}@${kit.version}`;
   const code = el('code', { textContent: cmd });
   const copy = el('button', { type: 'button', className: 'copy', textContent: 'Copy' });
   copy.addEventListener('click', () => copyText(cmd, copy, code));
@@ -490,7 +515,7 @@ function renderFoot() {
 // ------------------------------------------------------------ phone tabs
 function setPane(which) {
   document.body.dataset.pane = which;
-  for (const button of document.querySelectorAll('[data-pane-tab]')) button.setAttribute('aria-selected', String(button.dataset.paneTab === which));
+  for (const button of document.querySelectorAll('[data-pane-tab]')) button.setAttribute('aria-pressed', String(button.dataset.paneTab === which));
   if (which === 'result' && state.result && state.view === 'result') drawViz(state.result, false);
 }
 
@@ -521,7 +546,9 @@ function setupAgent() {
 renderNav();
 setupAgent();
 COPY_REPORT.addEventListener('click', (event) => {
-  if (state.result) copyText(reportMarkdown(state.kit, state.result, exampleLink()), event.currentTarget, $('result'));
+  if (!state.result || COPY_REPORT.disabled) return;
+  const link = linkFor(state.input);
+  if (link) copyText(reportMarkdown(state.kit, state.result, link), event.currentTarget, $('result'));
 });
 VIEW_CODE.addEventListener('click', () => (state.view === 'code' ? hideCode() : showCode()));
 for (const button of document.querySelectorAll('[data-pane-tab]')) button.addEventListener('click', () => setPane(button.dataset.paneTab));
@@ -538,10 +565,17 @@ document.fonts?.ready.then(() => { if (state.result && state.view === 'result') 
 
 // Fragment forms: #<kit>, #<kit>~<shared example>, #add-to-agent.
 function readHash() {
-  const raw = decodeURIComponent(location.hash.slice(1));
-  const [id, token] = raw.split('~');
-  const kit = KITS.find((k) => k.id === id);
-  return { raw, kit, shared: kit && token ? decodeExample(kit, token) : null };
+  try {
+    const raw = decodeURIComponent(location.hash.slice(1));
+    const [id, token, extra] = raw.split('~');
+    const kit = KITS.find((k) => k.id === id);
+    const shared = kit && token ? decodeExample(kit, token) : null;
+    if (raw.includes('~') && (!shared || extra !== undefined)) throw new Error('Invalid example');
+    return { raw, kit, shared };
+  } catch {
+    showLinkError('This example link could not be read. Showing the default example.');
+    return { raw: '', kit: null, shared: null };
+  }
 }
 $('copy-link').addEventListener('click', (event) => {
   const link = exampleLink();
@@ -578,7 +612,7 @@ $('share-link').addEventListener('click', async (event) => {
 addEventListener('hashchange', () => {
   const { raw, kit, shared } = readHash();
   if (raw === 'add-to-agent') return openAgent();
-  if (!kit) return;
+  if (!kit) { hideCode(); selectKit(KITS[0].id); return; }
   if (shared) { hideCode(); selectKit(kit.id, shared); }
   else if (kit.id !== state.kit?.id) { hideCode(); selectKit(kit.id); }
 });
