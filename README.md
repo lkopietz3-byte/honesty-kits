@@ -5,11 +5,11 @@ Small, dependency-free TypeScript checks for the claims your AI product makes.
 [![The playground: a draft with a bad citation gets fixed, a ranking moves when a partner pays more, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
 
 **[Try every kit in your browser →](https://lkopietz3-byte.github.io/honesty-kits/)**
-Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy blocks it from sending anything you type.
+Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy tells the browser to block requests to any other site.
 
 ## The kits
 
-Each kit is its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several.
+There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
 
 ### Check what your AI writes
 
@@ -50,7 +50,7 @@ Each kit is its own npm package, MIT licensed, with zero runtime dependencies an
 
 ## Use them from your AI coding agent
 
-[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) wraps eleven of the kits as tools for Claude Code, Cursor, VS Code and any other MCP client. It runs on your machine with npx.
+[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and any other MCP client. Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx.
 
 ```bash
 claude mcp add honesty-mcp -- npx -y honesty-mcp
@@ -73,10 +73,12 @@ The playground is static HTML and three ES modules, with no bundler. `tools/buil
 ```bash
 npm ci             # installs the exact kit versions the page serves
 npm test           # runs every example and every generated snippet against the real kits, then checks the build
-node tools/build.mjs && npx serve dist
+node tools/build.mjs && npm run serve    # builds dist/, then serves it at http://127.0.0.1:8080/
 ```
 
-`node tools/bump-kits.mjs grounding-kit@0.2.1 ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
+`node tools/bump-kits.mjs <kit>@<version> ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
+
+`node tools/rendered-check.mjs --playwright-root <path to playwright> --axe <path to axe-core>` loads the built page in a real browser at phone, tablet and desktop widths (light and dark) and checks every example, requests to other origins, focus, tap size and accessibility; it needs Playwright and axe-core installed somewhere and prints NOT_RUN without them.
 
 `node tools/demo-gif.mjs --playwright-root <path to playwright>` re-records `docs/demo.gif` from the live site, and `tools/og.mjs` re-captures the social card.
 

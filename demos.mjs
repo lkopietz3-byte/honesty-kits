@@ -13,6 +13,15 @@
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const clip = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 /**
+ * How long ago a stale claim was checked, set against its limit. Newer claims-registry
+ * releases compare exact hours, so a claim can be stale while its whole-day count still
+ * equals the limit.
+ */
+const staleAge = (ageDays, maxAgeDays) =>
+  ageDays > maxAgeDays
+    ? `${plural(ageDays, 'day')} ago, past the ${maxAgeDays}-day limit`
+    : `${plural(ageDays, 'day')} and some hours ago, just past the ${maxAgeDays}-day limit`;
+/**
  * Readable, valid JSON: flat objects and primitive arrays stay on one line,
  * lists of flat objects get one object per line.
  */
@@ -102,7 +111,7 @@ export const KITS = [
   // ---------------------------------------------------------------- grounding
   {
     id: 'grounding-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[0],
     name: 'Citations',
     question: 'Does each sentence cite evidence that actually says it?',
@@ -152,10 +161,16 @@ export const KITS = [
         const [mark, why, fix] = look[s.status] ?? ['info', s.status, null];
         let detail = `${why}.${s.citedIds.length ? ` Cites ${s.citedIds.join(', ')}.` : ''}`;
         if (s.status === 'invalid') {
-          const missing = s.citedIds.filter((id) => !known.has(id));
-          detail = missing.length
-            ? `Cites ${missing.join(', ')}, which ${missing.length === 1 ? 'is' : 'are'} not in the evidence.`
-            : `Cites ${s.citedIds.join(', ')}, but that evidence does not say this.`;
+          // Newer releases say why each citation failed; older ones only say that it did.
+          const reason = (id) => s.reasons?.[id] ?? (known.has(id) ? 'not-supported' : 'unknown-id');
+          const ids = (r) => s.citedIds.filter((id) => reason(id) === r);
+          const [missing, notText, thin, rest] = [ids('unknown-id'), ids('invalid-evidence'), ids('no-content-words'), ids('not-supported')];
+          const parts = [];
+          if (missing.length) parts.push(`Cites ${missing.join(', ')}, which ${missing.length === 1 ? 'is' : 'are'} not in the evidence.`);
+          if (notText.length) parts.push(`The evidence for ${notText.join(', ')} is not text.`);
+          if (thin.length) parts.push(`Cites ${thin.join(', ')}, but the sentence has no word longer than three characters, so there is nothing to compare.`);
+          if (rest.length || !parts.length) parts.push(`Cites ${(rest.length ? rest : s.citedIds).join(', ')}, but that evidence does not say this.`);
+          detail = parts.join(' ');
         }
         return { mark, title: clip(s.sentence), detail, fix };
       });
@@ -188,7 +203,7 @@ if (!result.isClean) process.exitCode = 1;
   // --------------------------------------------------------------- provenance
   {
     id: 'provenance-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[0],
     name: 'Certainty wording',
     question: 'Does the copy sound more certain than its source allows?',
@@ -252,11 +267,11 @@ if (offenses.length > 0) process.exitCode = 1;
   // ------------------------------------------------------------ corroboration
   {
     id: 'corroboration-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[0],
     name: 'Evidence strength',
     question: 'How strong is the evidence for a claim, and which way does it point?',
-    limit: 'Counts distinct sources you name. It cannot tell whether those sources are really independent.',
+    limit: 'Counts the sources you name. It cannot tell whether different sources are really independent.',
     fields: [
       { key: 'coverage', label: 'How much of the evidence you looked at: strong, partial or thin', kind: 'line' },
       { key: 'signals', label: 'What each source said', kind: 'json', rows: 11 },
@@ -307,6 +322,10 @@ if (offenses.length > 0) process.exitCode = 1;
         mixed: 'The evidence is split',
         none: 'There is no evidence either way',
       }[result.direction];
+      // Newer releases count pages of one site or repository once, and say so.
+      for (const group of result.groups ?? []) {
+        for (const merge of group.merges) rows.push({ mark: 'info', title: 'Counted as one source', detail: merge.explanation });
+      }
       if (result.direction === 'contradicts') rows.push({ mark: 'bad', title: 'Correct or withdraw the claim', detail: 'The evidence points the other way.', fix: 'Update the claim to match the evidence, or remove it.' });
       else if (result.verdict !== 'confirmed') rows.push({ mark: 'skip', title: 'Not confirmed yet', detail: `Coverage is ${result.coverage}.`, fix: 'Look at more of the evidence, and add a non-textual check (an API, a schema or observed behavior) before calling it confirmed.' });
       const tone = result.direction === 'contradicts' ? 'fail' : result.direction === 'supports' && result.verdict === 'confirmed' ? 'pass' : 'warn';
@@ -334,7 +353,7 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
   // ---------------------------------------------------------- claims-registry
   {
     id: 'claims-registry-kit',
-    version: '0.3.1',
+    version: '0.4.0',
     group: GROUPS[1],
     name: 'Claims on your site',
     question: 'Is every public claim still backed by evidence someone checked recently?',
@@ -374,9 +393,9 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
       const maxAgeDays = Number(input.maxAgeDays);
       const report = kit.generateClaimsReport(input.claims, maxAgeDays, now);
       const rows = [
-        ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), detail: 'No evidence linked. Nothing backs this claim.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
-        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), detail: c.ageDays === null ? 'The review date could not be read.' : `Last checked ${c.ageDays} days ago. Due for a re-check.`, fix: 'Re-check the evidence and update verifiedAt.' })),
-        ...report.current.map((c) => ({ mark: 'ok', title: clip(c.text), detail: `Checked ${c.ageDays} days ago.` })),
+        ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), detail: 'No evidence linked, or only a placeholder such as TODO. Nothing backs this claim.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
+        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), detail: c.ageDays === null ? 'The review date could not be read.' : `Last checked ${staleAge(c.ageDays, maxAgeDays)}. Due for a re-check.`, fix: 'Re-check the evidence and update verifiedAt.' })),
+        ...report.current.map((c) => ({ mark: 'ok', title: clip(c.text), detail: `Checked ${plural(c.ageDays, 'day')} ago.` })),
       ];
       const { current, stale, unverified, total } = report.counts;
       const tone = unverified ? 'fail' : stale ? 'warn' : 'pass';
@@ -409,7 +428,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------------- freshness
   {
     id: 'freshness-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[1],
     name: 'Freshness labels',
     question: 'How old is this information, and what should its label say?',
@@ -443,7 +462,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
         return {
           mark: mark[result.level] ?? 'info',
           title: badge ? `${page}: “${badge}”` : `${page}: no label needed`,
-          detail: result.message || `Reviewed ${result.ageDays} days ago, inside your ${input.config.warnAfterDays}-day window.`,
+          detail: result.message || `Reviewed ${plural(result.ageDays, 'day')} ago, inside your ${input.config.warnAfterDays}-day window.`,
           fix: fix[result.level] ?? null,
         };
       });
@@ -485,7 +504,7 @@ if (stale > 0) process.exitCode = 1;
   // ------------------------------------------------------- payout-invariance
   {
     id: 'payout-invariance-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[2],
     name: 'Paid placement',
     question: 'Would your rankings change if a partner paid you more?',
@@ -562,7 +581,7 @@ if (!result.passed) process.exitCode = 1;
   // ----------------------------------------------------- mutation-invariance
   {
     id: 'mutation-invariance-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[2],
     name: 'Hidden factors',
     question: 'Does a decision change when a field it should ignore changes?',
@@ -619,7 +638,7 @@ if (!result.passed) process.exitCode = 1;
   // ------------------------------------------------------------ advice-ledger
   {
     id: 'advice-ledger-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[2],
     name: 'Did the advice work?',
     question: 'After someone followed a recommendation, did the problem actually get better?',
@@ -661,7 +680,19 @@ if (!result.passed) process.exitCode = 1;
         detail: w.observations ? `Bad rate ${Math.round(w.badRate * 100)}%.` : 'No readings in this window.',
       });
       const rows = [window('Before the decision', grade.baseline), window('After (where the advice applied)', grade.result)];
-      if (grade.verdict === 'not-holding') rows.push({ mark: 'bad', title: 'The problem got worse after the advice', detail: 'More bad readings after the decision than before.', fix: 'Revisit the recommendation before applying it anywhere else.' });
+      if (grade.verdict === 'not-holding') {
+        const { baseline: before, result: after } = grade;
+        const rate = (w) => `${Math.round(w.badRate * 100)}%`;
+        // Compare as exact counts, the way the kit does, so a tie or a count-based verdict is described as what it is.
+        const change = after.bad * before.observations - before.bad * after.observations;
+        const note =
+          change > 0
+            ? { title: 'The problem got worse after the advice', detail: `The bad rate rose from ${rate(before)} to ${rate(after)}.` }
+            : change === 0
+              ? { title: 'The problem did not go down after the advice', detail: `Bad in ${before.bad} of ${before.observations} before and ${after.bad} of ${after.observations} after, so the rate did not fall.` }
+              : { title: 'Too many bad readings kept showing up after the advice', detail: `The bad rate fell from ${rate(before)} to ${rate(after)}, but ${plural(after.bad, 'bad reading')} reached the refute threshold of ${grade.thresholds.refuteThreshold}. That bar counts readings, not rates.` };
+        rows.push({ mark: 'bad', ...note, fix: 'Revisit the recommendation before applying it anywhere else.' });
+      }
       if (grade.refusalCodes.length) rows.push({ mark: 'skip', title: 'Not enough evidence to grade', detail: grade.refusalCodes.join(', '), fix: 'Collect more readings before and after the decision.' });
       const tone = grade.verdict === 'holding' ? 'pass' : grade.verdict === 'not-holding' ? 'fail' : 'warn';
       const label = { holding: 'The advice is holding up', 'not-holding': 'The advice is not holding up', refused: 'Not enough evidence to say' }[grade.verdict] ?? grade.verdict;
@@ -692,7 +723,7 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
   // --------------------------------------------------------------- trust-core
   {
     id: 'trust-core',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[3],
     name: 'Review patterns',
     question: 'Do these anonymous reviews look organic, or like a pattern worth a closer look?',
@@ -734,7 +765,7 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
       const result = kit.anonymous.assessAuthenticity(input.reviews, kit.anonymous.resolveAnonymousConfig(), { now });
       const look = 'Read these reviews yourself before trusting the score.';
       const rows = [
-        { mark: result.flags.lowSourceCount ? 'warn' : 'ok', title: result.flags.lowSourceCount ? 'Evidence comes from very few source types' : 'Evidence spans several source types', detail: `${plural(result.sourceCount, 'distinct source type')}. Independence is not verified.`, fix: result.flags.lowSourceCount ? look : null },
+        { mark: result.flags.lowSourceCount ? 'warn' : 'ok', title: result.flags.lowSourceCount ? 'Evidence comes from very few source types' : 'Evidence spans several source types', detail: `${plural(result.sourceCount, 'source type')} counted. Independence is not verified.`, fix: result.flags.lowSourceCount ? look : null },
         { mark: result.flags.uniformSentiment ? 'warn' : 'ok', title: result.flags.uniformSentiment ? 'Sentiment is unusually uniform' : 'Sentiment varies the way real opinions do', detail: 'Near-maximal sentiment with almost no variance is one cheap pattern worth a human look.', fix: result.flags.uniformSentiment ? look : null },
         { mark: result.eligibleSignalCount === result.signalCount ? 'ok' : 'skip', title: `${result.eligibleSignalCount} of ${plural(result.signalCount, 'review')} carried weight`, detail: 'Zero confidence, an unlisted source or fully decayed age gives a review no weight.', fix: result.eligibleSignalCount === result.signalCount ? null : 'Use sources listed in your config, with confidence above 0.' },
       ];
@@ -760,7 +791,7 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
   // -------------------------------------------------------- agent-receipt
   {
     id: 'agent-receipt-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[3],
     name: 'Agent receipts',
     question: 'Did your AI agent stay inside what it was allowed to do, and do its claims match reality?',
@@ -841,7 +872,7 @@ if (!result.accepted) process.exitCode = 1;
   // -------------------------------------------------------------- audit-chain
   {
     id: 'audit-chain-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[3],
     name: 'Tamper-evident log',
     question: 'Has anyone edited or deleted entries in this log after the fact?',
@@ -936,7 +967,7 @@ if (!result.valid) process.exitCode = 1;
   // ------------------------------------------------------------ cost-governor
   {
     id: 'cost-governor-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[4],
     name: 'AI spend cap',
     question: 'Will the next model call push you over your budget?',
@@ -985,10 +1016,10 @@ if (!check.allowed) process.exitCode = 1;
   },
 ];
 
-/** The MCP server that wraps eleven of the kits for AI coding agents. */
+/** The MCP server with tools for eleven of the 12 kits, for AI coding agents. */
 export const MCP = {
   id: 'honesty-mcp',
-  version: '0.2.0',
+  version: '0.3.0',
   serverName: 'honesty-mcp',
   config: { command: 'npx', args: ['-y', 'honesty-mcp'] },
 };

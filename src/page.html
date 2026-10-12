@@ -329,7 +329,8 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
   .foot-note { display: none; }
   .brand { min-height: 44px; }
   .copy { min-height: 44px; padding: 0 12px; }
-  .foot-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; }
+  .foot-links a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 4px; }
+  details.raw summary { display: flex; align-items: center; min-height: 44px; }
   .pane-foot { padding-block: 4px; }
   .pane-note { display: none; }
 }
@@ -437,7 +438,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
 <dialog id="agent-dialog" aria-labelledby="agent-title">
   <div class="dialog-inner">
     <h2 id="agent-title">Use these checks from your AI coding agent</h2>
-    <p><strong>honesty-mcp</strong> wraps eleven of these kits as tools for Claude Code, Cursor, VS Code and other MCP clients. It runs on your machine with npx, and the kits make no network calls.</p>
+    <p><strong>honesty-mcp</strong> has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and other MCP clients (two of them hand you starter code instead of running a check). It runs on your machine with npx, and the kits make no network calls.</p>
     <div class="install-buttons">
       <a class="btn btn-ink" id="add-cursor" href="#">Add to Cursor</a>
       <a class="btn" id="add-vscode" href="#" target="_blank" rel="noopener">Add to VS Code</a>
