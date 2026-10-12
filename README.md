@@ -76,7 +76,7 @@ npm test           # runs every example and every generated snippet against the 
 node tools/build.mjs && npm run serve    # builds dist/, then serves it at http://127.0.0.1:8080/
 ```
 
-`node tools/bump-kits.mjs grounding-kit@0.2.1 ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
+`node tools/bump-kits.mjs <kit>@<version> ...` moves kits to new releases everywhere the site pins them (`demos.mjs`, `package.json` and the lockfile), then checks npm's signatures.
 
 `node tools/rendered-check.mjs --playwright-root <path to playwright> --axe <path to axe-core>` loads the built page in a real browser at phone, tablet and desktop widths (light and dark) and checks every example, requests to other origins, focus, tap size and accessibility; it needs Playwright and axe-core installed somewhere and prints NOT_RUN without them.
 

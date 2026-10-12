@@ -27,7 +27,8 @@ A green run, a stale preview and an `npm test` on your laptop are not proof that
 
 ```bash
 git checkout <merge commit> && npm ci && node tools/build.mjs
-for f in index.html app.mjs demos.mjs viz.mjs sitemap.xml kits/grounding-kit@0.2.1/index.js; do
+v=$(node -p "require('./package.json').devDependencies['grounding-kit']")   # the pinned version, whatever it is today
+for f in index.html app.mjs demos.mjs viz.mjs sitemap.xml kits/grounding-kit@$v/index.js; do
   a=$(shasum -a 256 dist/$f | cut -d' ' -f1)
   b=$(curl -s "https://lkopietz3-byte.github.io/honesty-kits/$f" | shasum -a 256 | cut -d' ' -f1)
   [ "$a" = "$b" ] && echo "same  $f" || echo "DIFF  $f"
