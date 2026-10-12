@@ -111,7 +111,7 @@ export const KITS = [
   // ---------------------------------------------------------------- grounding
   {
     id: 'grounding-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[0],
     name: 'Citations',
     question: 'Does each sentence cite evidence that actually says it?',
@@ -203,7 +203,7 @@ if (!result.isClean) process.exitCode = 1;
   // --------------------------------------------------------------- provenance
   {
     id: 'provenance-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[0],
     name: 'Certainty wording',
     question: 'Does the copy sound more certain than its source allows?',
@@ -267,7 +267,7 @@ if (offenses.length > 0) process.exitCode = 1;
   // ------------------------------------------------------------ corroboration
   {
     id: 'corroboration-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[0],
     name: 'Evidence strength',
     question: 'How strong is the evidence for a claim, and which way does it point?',
@@ -353,7 +353,7 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
   // ---------------------------------------------------------- claims-registry
   {
     id: 'claims-registry-kit',
-    version: '0.3.1',
+    version: '0.4.0',
     group: GROUPS[1],
     name: 'Claims on your site',
     question: 'Is every public claim still backed by evidence someone checked recently?',
@@ -428,7 +428,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------------- freshness
   {
     id: 'freshness-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[1],
     name: 'Freshness labels',
     question: 'How old is this information, and what should its label say?',
@@ -504,7 +504,7 @@ if (stale > 0) process.exitCode = 1;
   // ------------------------------------------------------- payout-invariance
   {
     id: 'payout-invariance-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[2],
     name: 'Paid placement',
     question: 'Would your rankings change if a partner paid you more?',
@@ -581,7 +581,7 @@ if (!result.passed) process.exitCode = 1;
   // ----------------------------------------------------- mutation-invariance
   {
     id: 'mutation-invariance-kit',
-    version: '0.2.1',
+    version: '0.3.0',
     group: GROUPS[2],
     name: 'Hidden factors',
     question: 'Does a decision change when a field it should ignore changes?',
@@ -638,7 +638,7 @@ if (!result.passed) process.exitCode = 1;
   // ------------------------------------------------------------ advice-ledger
   {
     id: 'advice-ledger-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[2],
     name: 'Did the advice work?',
     question: 'After someone followed a recommendation, did the problem actually get better?',
@@ -723,7 +723,7 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
   // --------------------------------------------------------------- trust-core
   {
     id: 'trust-core',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[3],
     name: 'Review patterns',
     question: 'Do these anonymous reviews look organic, or like a pattern worth a closer look?',
@@ -791,7 +791,7 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
   // -------------------------------------------------------- agent-receipt
   {
     id: 'agent-receipt-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[3],
     name: 'Agent receipts',
     question: 'Did your AI agent stay inside what it was allowed to do, and do its claims match reality?',
@@ -872,7 +872,7 @@ if (!result.accepted) process.exitCode = 1;
   // -------------------------------------------------------------- audit-chain
   {
     id: 'audit-chain-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[3],
     name: 'Tamper-evident log',
     question: 'Has anyone edited or deleted entries in this log after the fact?',
@@ -967,7 +967,7 @@ if (!result.valid) process.exitCode = 1;
   // ------------------------------------------------------------ cost-governor
   {
     id: 'cost-governor-kit',
-    version: '0.2.0',
+    version: '0.3.0',
     group: GROUPS[4],
     name: 'AI spend cap',
     question: 'Will the next model call push you over your budget?',
@@ -1019,7 +1019,7 @@ if (!check.allowed) process.exitCode = 1;
 /** The MCP server with tools for eleven of the 12 kits, for AI coding agents. */
 export const MCP = {
   id: 'honesty-mcp',
-  version: '0.2.0',
+  version: '0.3.0',
   serverName: 'honesty-mcp',
   config: { command: 'npx', args: ['-y', 'honesty-mcp'] },
 };
