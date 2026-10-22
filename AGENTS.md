@@ -1,6 +1,6 @@
-# Agent rules for honesty-kits
+# Agent rules for the Evidence Kit Playground
 
-This repository is the front door for the honesty kits: a static playground (GitHub Pages) plus the tests that keep it honest. It is in a hardening-only state. Do not add features unless Lucas asks in chat.
+This repository is the front door for Evidence Kit (checks that tie AI output and public claims back to their evidence): a static playground (GitHub Pages) plus the tests that keep it honest. It is in a hardening-only state. Do not add features unless Lucas asks in chat.
 
 ## Hold: nothing outward-facing without a go
 
@@ -28,16 +28,16 @@ To move pinned kit versions, use `node tools/bump-kits.mjs <kit>@<version> ...`.
 
 ## The claims-test rule
 
-`test/claims.test.mjs` derives every public count from the source (`KITS` in `demos.mjs`, the example presets, the installed kit packages, and the honesty-mcp source when it is on disk) and fails when the README, the page or the generated metadata drift from it.
+`test/claims.test.mjs` derives every public count from the source (`KITS` in `demos.mjs`, the example presets, the installed kit packages, and the @evidencekit/mcp source (formerly honesty-mcp) when it is on disk) and fails when the README, the page or the generated metadata drift from it.
 
 - Never hard-code a count in the test. Change the source or the copy so they agree.
 - Put a new number in public copy only if the test can place it; an unplaced count fails on purpose.
-- If honesty-mcp lives somewhere other than `../honesty-mcp` or `~/honesty-mcp`, set `HONESTY_MCP_DIR`. When its source is absent those checks are skipped, and a skip is NOT_RUN, not a pass.
+- If the MCP server source (@evidencekit/mcp, formerly honesty-mcp) lives somewhere other than `../mcp`, `../honesty-mcp` or `~/honesty-mcp`, set `HONESTY_MCP_DIR`. When its source is absent those checks are skipped, and a skip is NOT_RUN, not a pass.
 
 ## Honest copy
 
 - Plain, specific, American spelling. No em dashes.
-- Say "12 kits plus honesty-mcp" or "13 packages". Never a bare "13 kits" or "12 packages". Derive the numbers from `KITS`.
+- Say "12 kits plus @evidencekit/mcp" or "13 packages". Never a bare "13 kits" or "12 packages". Derive the numbers from `KITS`.
 - Do not claim that all packages are published with provenance. Check the registry before saying anything about provenance.
 - No certification, fraud-detection, "verified" or "catches fake reviews" claims the code does not back.
 - No invented numbers, prices, quotes or testimonials.
@@ -45,6 +45,10 @@ To move pinned kit versions, use `node tools/bump-kits.mjs <kit>@<version> ...`.
 ## Evidence labels
 
 Label claims Verified (you ran or read it), Reported (someone else's word), Inferred or Unknown. Keep implemented, locally verified, production verified and outcome validated separate. A green `npm test` is local verification, not proof that the live site matches. A check you skipped is NOT_RUN. Do not call CI green unless you looked at the run.
+
+## Names
+
+The brand is "Evidence Kit" (two words, never bare "Evidence"). The page shows the `@evidencekit/*` package names and says each was formerly published under its old name. `id` in `demos.mjs` is still the old npm name because the page loads the packages published today; `pkg` and `repo` are the new names. Switching the loaded packages to `@evidencekit/*` happens only after they are published.
 
 ## Other rules
 

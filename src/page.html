@@ -1,5 +1,5 @@
-<title>Honesty Kits</title>
-<meta name="description" content="Small, dependency-free TypeScript checks for the claims an AI product makes. Try each one in your browser.">
+<title>Evidence Kit Playground</title>
+<meta name="description" content="Evidence Kit Playground: checks that tie AI output and public claims back to their evidence. Try each one in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
@@ -356,15 +356,15 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
 
 <div class="app">
   <header class="top">
-    <a class="brand" href="#grounding-kit" aria-label="Honesty Kits home">
+    <a class="brand" href="#grounding-kit" aria-label="Evidence Kit Playground home">
       <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6">
         <circle cx="16" cy="16" r="9"></circle>
         <circle cx="16" cy="16" r="3.2" fill="currentColor" stroke="none"></circle>
         <path d="M16 1v8M16 23v8M1 16h8M23 16h8"></path>
       </svg>
-      <span class="brand-name">honesty kits</span>
+      <span class="brand-name">Evidence Kit</span>
     </a>
-    <p class="tagline">Small, dependency-free checks for the claims your AI product makes. Pick one and try it on real examples.</p>
+    <p class="tagline">Checks that tie AI output and public claims back to their evidence. Pick one and try it on real examples.</p>
     <nav class="top-actions" aria-label="Project">
       <button id="share-link" class="btn share-phone" type="button" aria-label="Share this example" title="Share this example">
         <svg class="icon-share" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"></path><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"></path></svg>
@@ -372,7 +372,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
         <span class="share-label">Share</span>
       </button>
       <button id="open-agent" class="btn" type="button"><span class="open-agent-long">Add to your AI agent</span><span class="open-agent-short">Add to agent</span></button>
-      <a class="btn btn-quiet" href="https://github.com/lkopietz3-byte/honesty-kits" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-quiet" href="https://github.com/evidencekit/evidencekit.github.io" target="_blank" rel="noopener">GitHub</a>
     </nav>
   </header>
 
@@ -438,7 +438,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
 <dialog id="agent-dialog" aria-labelledby="agent-title">
   <div class="dialog-inner">
     <h2 id="agent-title">Use these checks from your AI coding agent</h2>
-    <p><strong>honesty-mcp</strong> has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and other MCP clients (two of them hand you starter code instead of running a check). It runs on your machine with npx, and the kits make no network calls.</p>
+    <p><strong>@evidencekit/mcp</strong> (formerly honesty-mcp) has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and other MCP clients (two of them hand you starter code instead of running a check). It runs on your machine with npx, and the kits make no network calls.</p>
     <div class="install-buttons">
       <a class="btn btn-ink" id="add-cursor" href="#">Add to Cursor</a>
       <a class="btn" id="add-vscode" href="#" target="_blank" rel="noopener">Add to VS Code</a>
@@ -451,7 +451,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
       <span class="snippet-label" id="json-label">Any other MCP client (mcpServers config)</span>
       <div class="snippet-box"><pre id="json-cfg" aria-labelledby="json-label" tabindex="0"></pre><button class="copy" type="button" data-copy="json-cfg">Copy</button></div>
     </div>
-    <p>Published as <a href="https://www.npmjs.com/package/honesty-mcp" target="_blank" rel="noopener">honesty-mcp on npm</a> and listed in the official MCP registry. Buttons for Cursor and VS Code open that app if it is installed.</p>
+    <p>Published as <a href="https://www.npmjs.com/package/@evidencekit/mcp" target="_blank" rel="noopener">@evidencekit/mcp on npm</a> (formerly honesty-mcp) and listed in the official MCP registry. Buttons for Cursor and VS Code open that app if it is installed.</p>
     <button class="btn dialog-close" type="button" id="close-agent">Close</button>
   </div>
 </dialog>

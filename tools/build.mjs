@@ -13,8 +13,8 @@ import { pathToFileURL } from 'node:url';
 import { KITS } from '../demos.mjs';
 
 const root = new URL('../', import.meta.url);
-// HONESTY_KITS_OUT (an absolute path) lets a test build somewhere other than dist/.
-const out = process.env.HONESTY_KITS_OUT ? pathToFileURL(`${process.env.HONESTY_KITS_OUT.replace(/\/?$/, '/')}`) : new URL('dist/', root);
+// EVIDENCEKIT_SITE_OUT (an absolute path) lets a test build somewhere other than dist/.
+const out = process.env.EVIDENCEKIT_SITE_OUT ? pathToFileURL(`${process.env.EVIDENCEKIT_SITE_OUT.replace(/\/?$/, '/')}`) : new URL('dist/', root);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 let page = readFileSync(new URL('src/page.html', root), 'utf8');
@@ -70,19 +70,19 @@ const split = page.indexOf('</style>') + '</style>'.length;
 if (split < '</style>'.length) throw new Error('src/page.html has no </style>');
 const headPart = page.slice(0, split);
 const bodyPart = page.slice(split);
-const site = 'https://lkopietz3-byte.github.io/honesty-kits/';
+const site = 'https://evidencekit.github.io/';
 const jsonLd = JSON.stringify({
   '@context': 'https://schema.org',
   '@type': 'WebApplication',
-  name: 'Honesty Kits',
+  name: 'Evidence Kit Playground',
   url: site,
-  description: `Small, dependency-free TypeScript checks for the claims an AI product makes. Try all ${KITS.length} kits in your browser.`,
+  description: `Evidence Kit: checks that tie AI output and public claims back to their evidence. Try all ${KITS.length} kits in your browser.`,
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'Any',
   isAccessibleForFree: true,
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   license: 'https://opensource.org/licenses/MIT',
-  sameAs: ['https://github.com/lkopietz3-byte/honesty-kits', 'https://www.npmjs.com/package/honesty-mcp'],
+  sameAs: ['https://github.com/evidencekit/evidencekit.github.io', 'https://www.npmjs.com/org/evidencekit'],
 });
 const html = `<!doctype html>
 <html lang="en">
@@ -93,19 +93,19 @@ const html = `<!doctype html>
 <meta name="kit-base" content="./kits/">
 ${fontPreload}
 ${preload}
-<meta property="og:title" content="Honesty Kits">
+<meta property="og:title" content="Evidence Kit Playground">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://lkopietz3-byte.github.io/honesty-kits/">
-<meta property="og:image" content="https://lkopietz3-byte.github.io/honesty-kits/og.png">
+<meta property="og:url" content="${site}">
+<meta property="og:image" content="${site}og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Honesty Kits playground showing a ranking that changed when a partner paid more.">
+<meta property="og:image:alt" content="The Evidence Kit Playground showing a ranking that changed when a partner paid more.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="canonical" href="https://lkopietz3-byte.github.io/honesty-kits/">
+<link rel="canonical" href="${site}">
 <script type="application/ld+json">${jsonLd}</script>
 ${headPart}
-<meta property="og:description" content="Small, dependency-free checks for the claims your AI product makes. Try each one in your browser.">
+<meta property="og:description" content="Checks that tie AI output and public claims back to their evidence. Try each one in your browser.">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>

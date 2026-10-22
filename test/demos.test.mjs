@@ -56,14 +56,14 @@ test('bad input surfaces the kit’s own error instead of a fake result', async 
 
 test('MCP install links use the documented formats', () => {
   const links = mcpLinks((s) => Buffer.from(s).toString('base64'));
-  assert.equal(links.claudeCode, 'claude mcp add honesty-mcp -- npx -y honesty-mcp');
+  assert.equal(links.claudeCode, 'claude mcp add evidencekit -- npx -y @evidencekit/mcp');
   const cursor = new URL(links.cursor);
   assert.equal(cursor.protocol, 'cursor:');
   assert.deepEqual(JSON.parse(Buffer.from(cursor.searchParams.get('config'), 'base64').toString()), MCP.config);
   const vscode = new URL(links.vscode);
   assert.equal(vscode.origin + vscode.pathname, 'https://insiders.vscode.dev/redirect/mcp/install');
   assert.deepEqual(JSON.parse(vscode.searchParams.get('config')), MCP.config);
-  assert.deepEqual(JSON.parse(links.configJson).mcpServers['honesty-mcp'], MCP.config);
+  assert.deepEqual(JSON.parse(links.configJson).mcpServers['evidencekit'], MCP.config);
 });
 
 const VIZ = {
@@ -81,7 +81,7 @@ test('each result carries its graphic data and a fix for every problem', async (
       if (result.tone === 'fail' || result.tone === 'warn') assert.ok(result.rows.some((r) => r.fix), `${kit.id} ${preset.label} offers at least one fix`);
       for (const row of result.rows) if (row.fix) assert.ok(row.mark !== 'ok', `${kit.id} ${preset.label}: fix only on problem rows`);
       const md = reportMarkdown(kit, result);
-      assert.ok(md.startsWith(`**${kit.id}@${kit.version}: `) && md.includes('What it does not check'), `${kit.id} report`);
+      assert.ok(md.startsWith(`**${kit.pkg} (formerly ${kit.id}@${kit.version}): `) && md.includes('What it does not check'), `${kit.id} report`);
     }
   }
 });
@@ -95,7 +95,10 @@ test('every generated snippet runs against the real kit and exits like the playg
       for (const [i, preset] of kit.presets.entries()) {
         const result = await kit.run(mod, structuredClone(preset.input));
         const file = new URL(`${kit.id}-${i}.mjs`, dir);
-        writeFileSync(file, kit.snippet(structuredClone(preset.input)));
+        const code = kit.snippet(structuredClone(preset.input));
+        assert.ok(code.includes(`from '${kit.pkg}'`) && !code.includes(`from '${kit.id}'`), `${kit.id} snippet imports ${kit.pkg}`);
+        // The scoped package is not published yet: run the same code against the published name.
+        writeFileSync(file, code.replaceAll(`from '${kit.pkg}'`, `from '${kit.id}'`));
         const run = spawnSync(process.execPath, [file.pathname], { encoding: 'utf8' });
         assert.ok(run.status === 0 || run.status === 1, `${kit.id} ${preset.label} crashed: ${run.stderr}`);
         if (result.tone === 'pass') assert.equal(run.status, 0, `${kit.id} ${preset.label} should exit 0`);

@@ -18,7 +18,7 @@ test('the page loads nothing from other origins', () => {
   for (const rule of ["default-src 'none'", "script-src 'self'", "font-src 'self'", "connect-src 'none'", "form-action 'none'"]) {
     assert.ok(csp.includes(rule), `CSP has ${rule}`);
   }
-  assert.ok(!/https?:\/\/(?!lkopietz3-byte\.github\.io|schema\.org|www\.npmjs\.com|github\.com|opensource\.org|registry)[^"'\s)]*\.(js|mjs|css|woff2?)/.test(html), 'no third-party script, style or font URLs');
+  assert.ok(!/https?:\/\/(?!evidencekit\.github\.io|schema\.org|www\.npmjs\.com|github\.com|opensource\.org|registry)[^"'\s)]*\.(js|mjs|css|woff2?)/.test(html), 'no third-party script, style or font URLs');
   assert.ok(!html.includes('fonts.googleapis.com') && !html.includes('fonts.gstatic.com'), 'fonts are local');
   assert.match(html, /<meta name="kit-base" content="\.\/kits\/">/);
 });

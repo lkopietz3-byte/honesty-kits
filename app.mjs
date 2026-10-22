@@ -96,10 +96,10 @@ function renderNav() {
     for (const kit of kits) {
       const button = el('button', { type: 'button', id: `nav-${kit.id}` },
         el('span', { className: 'kit-name', textContent: kit.name }),
-        el('span', { className: 'kit-pkg', textContent: kit.id }));
+        el('span', { className: 'kit-pkg', textContent: kit.pkg }));
       button.addEventListener('click', () => go(kit.id));
       list.append(el('li', {}, button));
-      optgroup.append(el('option', { value: kit.id, textContent: `${kit.name} (${kit.id})` }));
+      optgroup.append(el('option', { value: kit.id, textContent: `${kit.name} (${kit.pkg})` }));
     }
     rail.append(el('section', { className: 'rail-group' }, el('h2', { textContent: group }), list));
     select.append(optgroup);
@@ -125,7 +125,7 @@ function selectKit(id, sharedInput = null) {
   $('kit-select').value = kit.id;
   $('kit-title').textContent = kit.name;
   $('kit-question').textContent = kit.question;
-  document.title = `${kit.name} · Honesty Kits`;
+  document.title = `${kit.name} · Evidence Kit Playground`;
   renderExamples();
   renderFoot();
   if (sharedInput) useInput(sharedInput);
@@ -429,7 +429,7 @@ function showCode() {
   const copy = el('button', { type: 'button', className: 'btn', textContent: 'Copy code' });
   copy.addEventListener('click', () => copyText(code, copy, pre));
   $('code-view').replaceChildren(
-    el('p', { className: 'code-note' }, `The same check as an ES module, built from your current input. Run it with Node 20+ after `, el('code', { textContent: `npm install ${state.kit.id}` }), '. It exits with code 1 when it finds a problem, so it can fail a CI job or block a deploy.'),
+    el('p', { className: 'code-note' }, `The same check as an ES module, built from your current input. Run it with Node 20+ after `, el('code', { textContent: `npm install ${state.kit.pkg}` }), '. It exits with code 1 when it finds a problem, so it can fail a CI job or block a deploy.'),
     pre,
     copy);
   $('result').hidden = true;
@@ -472,17 +472,17 @@ function placeActions() {
 
 function renderFoot() {
   const kit = state.kit;
-  const cmd = `npm install ${kit.id}`;
+  const cmd = `npm install ${kit.pkg}`;
   const code = el('code', { textContent: cmd });
   const copy = el('button', { type: 'button', className: 'copy', textContent: 'Copy' });
   copy.addEventListener('click', () => copyText(cmd, copy, code));
-  const npmLink = el('a', { href: `https://www.npmjs.com/package/${kit.id}`, target: '_blank', rel: 'noopener', textContent: 'npm' });
+  const npmLink = el('a', { href: `https://www.npmjs.com/package/${kit.pkg}`, target: '_blank', rel: 'noopener', textContent: 'npm' });
   npmLink.setAttribute('data-npm', '');
   $('foot').replaceChildren(
     el('span', { className: 'install' }, code, copy),
-    el('span', { className: 'foot-note', textContent: `Running the published ${kit.id}@${kit.version} in your browser.` }),
+    el('span', { className: 'foot-note', textContent: `${kit.pkg}, formerly published as ${kit.formerly}. This page runs the published ${kit.formerly}@${kit.version} in your browser.` }),
     el('span', { className: 'foot-links' },
-      el('a', { href: `https://github.com/lkopietz3-byte/${kit.id}#readme`, target: '_blank', rel: 'noopener', textContent: 'Docs' }),
+      el('a', { href: `https://github.com/evidencekit/${kit.repo}#readme`, target: '_blank', rel: 'noopener', textContent: 'Docs' }),
       npmLink));
   placeActions();
 }
@@ -557,7 +557,7 @@ $('share-link').addEventListener('click', async (event) => {
   if (!link) return;
   if (typeof navigator.share === 'function') {
     try {
-      await navigator.share({ title: `${state.kit.name} · honesty kits`, text: shown ? state.result.headline : state.kit.question, url: link });
+      await navigator.share({ title: `${state.kit.name} · Evidence Kit Playground`, text: shown ? state.result.headline : state.kit.question, url: link });
       return;
     } catch (error) {
       if (error?.name === 'AbortError') return; // closed the sheet

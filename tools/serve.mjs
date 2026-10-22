@@ -3,8 +3,7 @@
 //
 //   node tools/build.mjs && node tools/serve.mjs [port]      (default port 8080)
 //
-// The page is also served under /honesty-kits/, the path it has on GitHub Pages,
-// so absolute links behave the same here as on the live site.
+// The page is served at the root, the same path it has on https://evidencekit.github.io/.
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -47,8 +46,6 @@ function resolveRequest(rawPath) {
   let decoded;
   try { decoded = decodeURIComponent(rawPath); } catch { return 400; }
   if (decoded.includes('\0') || decoded.includes('\\')) return 400;
-  if (decoded === '/honesty-kits') decoded = '/honesty-kits/';
-  if (decoded.startsWith('/honesty-kits/')) decoded = decoded.slice('/honesty-kits'.length);
   if (decoded.endsWith('/')) decoded += 'index.html';
   const file = path.resolve(root, `.${decoded}`);
   // Anything that resolves outside dist/ (for example /../package.json) is refused.

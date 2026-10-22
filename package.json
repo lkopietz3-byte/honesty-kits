@@ -1,8 +1,16 @@
 {
-  "name": "honesty-kits-site",
+  "name": "evidencekit-playground",
   "private": true,
   "type": "module",
-  "description": "Front door and in-browser playground for the honesty kits.",
+  "description": "Front door and in-browser playground for Evidence Kit: checks that tie AI output and public claims back to their evidence.",
+  "homepage": "https://evidencekit.github.io/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evidencekit/evidencekit.github.io.git"
+  },
+  "bugs": {
+    "url": "https://github.com/evidencekit/evidencekit.github.io/issues"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "serve": "node tools/serve.mjs"

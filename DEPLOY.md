@@ -1,8 +1,8 @@
-# Deploying the playground
+# Deploying the Evidence Kit Playground
 
 ## Deploy equals merge to main
 
-The live site is https://lkopietz3-byte.github.io/honesty-kits/. It is built and published by `.github/workflows/pages.yml` on every push to `main` (and on a manual run of that workflow). There is no other deploy path. Treat a merge to `main` as a deploy, and do not do it until Lucas says "deploy" in chat.
+The site is https://evidencekit.github.io/ (repository `evidencekit/evidencekit.github.io`; it was previously at lkopietz3-byte.github.io/honesty-kits). It is built and published by `.github/workflows/pages.yml` on every push to `main` (and on a manual run of that workflow). There is no other deploy path. Treat a merge to `main` as a deploy, and do not do it until Lucas says "deploy" in chat.
 
 ## What is tested before it ships
 
@@ -22,7 +22,7 @@ What is not tested in CI: how the page looks and behaves in a real browser (layo
 A green run, a stale preview and an `npm test` on your laptop are not proof that the live site is the revision you tested. After a deploy:
 
 1. Note the merge commit and its time (`git log -1 --format='%H %cI' origin/main`).
-2. Check the live response is fresh: `curl -sI https://lkopietz3-byte.github.io/honesty-kits/` should show `HTTP/2 200` and a `last-modified` time just after the workflow finished. A matching time is consistent with the deploy but does not prove it.
+2. Check the live response is fresh: `curl -sI https://evidencekit.github.io/` should show `HTTP/2 200` and a `last-modified` time just after the workflow finished. A matching time is consistent with the deploy but does not prove it.
 3. Compare content. Build that exact commit and compare file hashes with what the site serves:
 
 ```bash
@@ -30,7 +30,7 @@ git checkout <merge commit> && npm ci && node tools/build.mjs
 v=$(node -p "require('./package.json').devDependencies['grounding-kit']")   # the pinned version, whatever it is today
 for f in index.html app.mjs demos.mjs viz.mjs sitemap.xml kits/grounding-kit@$v/index.js; do
   a=$(shasum -a 256 dist/$f | cut -d' ' -f1)
-  b=$(curl -s "https://lkopietz3-byte.github.io/honesty-kits/$f" | shasum -a 256 | cut -d' ' -f1)
+  b=$(curl -s "https://evidencekit.github.io/$f" | shasum -a 256 | cut -d' ' -f1)
   [ "$a" = "$b" ] && echo "same  $f" || echo "DIFF  $f"
 done
 ```
@@ -45,10 +45,19 @@ Until Lucas says go in chat, none of these happen, from any branch or by any age
 - tags and releases, in this repo or any kit repo
 - `npm publish`, `npm login`, and trusted-publishing runs
 - Show HN posts, MCP directory submissions, and any other post, message or outreach
-- license changes: the README license line, `LICENSE`, the `license` field in any kit's `package.json`, the JSON-LD license URL in `tools/build.mjs`, the honesty-mcp registry entry
+- license changes: the README license line, `LICENSE`, the `license` field in any kit's `package.json`, the JSON-LD license URL in `tools/build.mjs`, the MCP registry entry (`io.github.evidencekit/mcp`)
 - DNS or domain changes, accounts, payment links, and new analytics
 
 Preparing work on a local branch, running tests, and writing docs are fine.
+
+## Moving the repo to evidencekit/evidencekit.github.io
+
+This changes nothing in the code once the repo is named `evidencekit.github.io` under the `evidencekit` org: the page uses relative paths and is built for the root of that origin. After the transfer and rename:
+
+1. In Settings, Pages, set the source to GitHub Actions and re-run `pages.yml`.
+2. The old address (lkopietz3-byte.github.io/honesty-kits) stops redirecting once the old repo is gone. Leave a stub page there if old links matter.
+3. Update the repository link, topics and social preview in the repo settings.
+4. Re-run the byte comparison above against https://evidencekit.github.io/.
 
 ## Rolling back
 

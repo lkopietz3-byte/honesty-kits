@@ -16,7 +16,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { KITS, GROUPS } from '../demos.mjs';
+import { KITS, GROUPS, MCP } from '../demos.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (file) => readFileSync(path.join(root, file), 'utf8');
@@ -26,7 +26,7 @@ const KIT_IDS = KITS.map((k) => k.id);
 const EXAMPLES = KITS.reduce((n, k) => n + k.presets.length, 0);
 
 function findMcpDir() {
-  const candidates = [process.env.HONESTY_MCP_DIR, path.join(root, '../honesty-mcp'), path.join(homedir(), 'honesty-mcp')].filter(Boolean);
+  const candidates = [process.env.HONESTY_MCP_DIR, path.join(root, '../mcp'), path.join(root, '../honesty-mcp'), path.join(homedir(), 'honesty-mcp')].filter(Boolean);
   return candidates.find((dir) => existsSync(path.join(dir, 'src/server.ts')) && existsSync(path.join(dir, 'package.json')));
 }
 const MCP_DIR = findMcpDir();
@@ -68,9 +68,9 @@ const metaContent = (html, attr, name) => html.match(new RegExp(`<meta ${attr}="
  * owns dist/. Returns the built index.html.
  */
 function buildScratch() {
-  const out = mkdtempSync(path.join(tmpdir(), 'honesty-kits-claims-'));
+  const out = mkdtempSync(path.join(tmpdir(), 'evidencekit-site-claims-'));
   try {
-    execFileSync(process.execPath, ['tools/build.mjs'], { cwd: root, stdio: 'pipe', env: { ...process.env, HONESTY_KITS_OUT: out } });
+    execFileSync(process.execPath, ['tools/build.mjs'], { cwd: root, stdio: 'pipe', env: { ...process.env, EVIDENCEKIT_SITE_OUT: out } });
     return readFileSync(path.join(out, 'index.html'), 'utf8');
   } finally {
     rmSync(out, { recursive: true, force: true });
@@ -110,7 +110,7 @@ function countClaims(text) {
     const before = text.slice(Math.max(0, m.index - 120), m.index);
     const kind = /^\s+run the check/.test(after) ? 'mcp-checking'
       : /^\s+hand you starter code/.test(after) ? 'mcp-scaffold'
-      : /honesty-mcp|tools for/i.test(before) ? 'mcp-wrapped' : 'unplaced';
+      : /honesty-mcp|@evidencekit\/mcp|tools for/i.test(before) ? 'mcp-wrapped' : 'unplaced';
     claims.push({ phrase: m[0], kind, n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
   }
   for (const m of text.matchAll(OTHER_TWO)) claims.push({ phrase: m[0], kind: 'mcp-scaffold', n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
@@ -178,7 +178,7 @@ test('the number of kits, examples and packages matches the source', () => {
 test('the README states the kit count and the honesty-mcp relationship in the exact words the source supports', () => {
   const readme = SURFACES[0][1];
   assert.ok(readme.includes(`There are ${KITS.length} kits`), `README says "There are ${KITS.length} kits"`);
-  assert.ok(readme.includes('Plus honesty-mcp, a separate package'), 'README names honesty-mcp as a separate package');
+  assert.ok(readme.includes('Plus @evidencekit/mcp, a separate package'), 'README names @evidencekit/mcp (formerly honesty-mcp) as a separate package');
   assert.ok(jsonLd.description.includes(`all ${KITS.length} kits`), 'JSON-LD description counts the kits');
   assert.ok(!/\b(13|thirteen)\s+kits\b/i.test(readme) && !/\b(12|twelve)\s+packages\b/i.test(readme), 'no bare 13 kits or 12 packages');
 });
@@ -216,14 +216,22 @@ test('the README lists every kit once, under its group, linked to the playground
   const seen = [];
   for (const [i, h] of headings.slice(0, GROUPS.length).entries()) {
     const section = readme.slice(h.at, headings[i + 1]?.at ?? readme.length);
-    const rows = [...section.matchAll(/^\| \[([a-z-]+)\]\(https:\/\/github\.com\/[^/)]+\/([a-z-]+)\) \|.*\[playground\]\(https:\/\/lkopietz3-byte\.github\.io\/honesty-kits\/#([a-z-]+)\) \|$/gm)];
+    const rows = [...section.matchAll(/^\| \[(@evidencekit\/[a-z-]+)\]\(https:\/\/github\.com\/evidencekit\/([a-z-]+)\) \|.*\[playground\]\(https:\/\/evidencekit\.github\.io\/#([a-z-]+)\) \|$/gm)];
     for (const [, label, repo, anchor] of rows) {
-      assert.ok(label === repo && repo === anchor, `README row ${label} links to its own repo and playground anchor`);
-      seen.push(label);
-      assert.equal(KITS.find((k) => k.id === label)?.group, h.title, `${label} is under "${h.title}"`);
+      const kit = KITS.find((k) => k.id === anchor);
+      assert.ok(kit, `README row ${label} links to a known playground anchor`);
+      assert.ok(label === kit.pkg && repo === kit.repo, `README row ${anchor} names ${kit.pkg} and links to its own repo`);
+      seen.push(anchor);
+      assert.equal(kit.group, h.title, `${label} is under "${h.title}"`);
     }
   }
   assert.deepEqual([...seen].sort(), [...KIT_IDS].sort(), 'every kit appears in the README table exactly once');
+});
+
+test('the README says which old name each renamed package was published under', () => {
+  const readme = SURFACES[0][1];
+  for (const kit of KITS) assert.ok(readme.includes(`- \`${kit.pkg}\`: formerly \`${kit.formerly}\``), `README lists ${kit.pkg} as formerly ${kit.formerly}`);
+  assert.ok(readme.includes(`- \`${MCP.pkg}\`: formerly \`${MCP.formerly}\``), 'README lists the MCP server rename');
 });
 
 test('every kit shows what it does not check', () => {
@@ -331,7 +339,7 @@ test('the wording checks catch what they are meant to catch', () => {
   assert.ok(countProblems('x', 'It has 13 kits.').length === 1);
   assert.ok(countProblems('x', 'It has 12 packages.').length === 1);
   assert.ok(countProblems('x', 'Pick from 7777 examples.').length === 1);
-  if (MCP_DIR) assert.ok(countProblems('x', 'honesty-mcp has tools for ten of them.').length === 1, 'a pronoun count is checked');
+  if (MCP_DIR) assert.ok(countProblems('x', '@evidencekit/mcp has tools for ten of them.').length === 1, 'a pronoun count is checked');
   assert.ok(countProblems('x', 'It is a thing, and there are ten of them.').length === 1, 'a pronoun count with no context is unplaced');
   assert.ok(countProblems('x', 'The page has seven ES modules.').length === 1, 'an ES module count is checked');
   assert.ok(countProblems('x', 'There are twelve of something.').length === 1, 'an unplaced spelled-out number fails');

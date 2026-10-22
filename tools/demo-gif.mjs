@@ -3,7 +3,7 @@
 // payout, and the generated CI code. Frames are screenshots; holds become GIF
 // frame delays, so only the animated moments need many frames.
 //
-//   node tools/demo-gif.mjs [--url https://lkopietz3-byte.github.io/honesty-kits/] [--playwright-root /path/to/playwright]
+//   node tools/demo-gif.mjs [--url https://evidencekit.github.io/] [--playwright-root /path/to/playwright]
 import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,7 +16,7 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, v, i, a) =>
 const pw = args['--playwright-root']
   ? await import(pathToFileURL(path.join(args['--playwright-root'], 'index.mjs')).href)
   : await import('playwright');
-const url = args['--url'] ?? 'https://lkopietz3-byte.github.io/honesty-kits/';
+const url = args['--url'] ?? 'https://evidencekit.github.io/';
 const W = 1200, H = 675;
 const SCALE = 0.75; // output 900x506, small enough for a README
 const OW = Math.round(W * SCALE), OH = Math.round(H * SCALE);

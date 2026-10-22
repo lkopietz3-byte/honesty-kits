@@ -107,7 +107,7 @@ function source(fn) {
 const scenariosSource = () =>
   `[\n${PAYOUT_SCENARIOS.map((sc) => `  { name: ${JSON.stringify(sc.name)}, mutate: ${source(sc.mutate).replace(/\n/g, '\n  ')} },`).join('\n')}\n]`;
 
-export const KITS = [
+const KIT_DEFS = [
   // ---------------------------------------------------------------- grounding
   {
     id: 'grounding-kit',
@@ -1016,19 +1016,49 @@ if (!check.allowed) process.exitCode = 1;
   },
 ];
 
+/**
+ * The scoped npm package and GitHub repo each kit moves to. The playground keeps
+ * loading the packages published today (`id`) until the scoped ones exist, so
+ * `id` stays the loader name and the shared-link anchor; `pkg` is the name the
+ * page displays in install lines, links and generated code. `formerly` is `id`.
+ */
+export const RENAMES = {
+  'grounding-kit': ['@evidencekit/citations', 'citations'],
+  'provenance-kit': ['@evidencekit/wording', 'wording'],
+  'corroboration-kit': ['@evidencekit/corroboration', 'corroboration'],
+  'claims-registry-kit': ['@evidencekit/claims', 'claims'],
+  'freshness-kit': ['@evidencekit/freshness', 'freshness'],
+  'payout-invariance-kit': ['@evidencekit/payout-invariance', 'payout-invariance'],
+  'mutation-invariance-kit': ['@evidencekit/input-invariance', 'input-invariance'],
+  'advice-ledger-kit': ['@evidencekit/advice-ledger', 'advice-ledger'],
+  'trust-core': ['@evidencekit/reputation', 'reputation'],
+  'agent-receipt-kit': ['@evidencekit/agent-receipts', 'agent-receipts'],
+  'audit-chain-kit': ['@evidencekit/audit-chain', 'audit-chain'],
+  'cost-governor-kit': ['@evidencekit/spend-limits', 'spend-limits'],
+};
+
+export const KITS = KIT_DEFS.map((kit) => {
+  const [pkg, repo] = RENAMES[kit.id] ?? [];
+  if (!pkg) throw new Error(`no rename entry for ${kit.id}`);
+  // Generated code imports the new name; the tests map it back to the published name to run it.
+  const snippet = (input) => kit.snippet(input).replaceAll(`'${kit.id}'`, `'${pkg}'`);
+  return { ...kit, pkg, repo, formerly: kit.id, snippet };
+});
+
 /** The MCP server with tools for eleven of the 12 kits, for AI coding agents. */
 export const MCP = {
-  id: 'honesty-mcp',
+  pkg: '@evidencekit/mcp',
+  formerly: 'honesty-mcp',
   version: '0.3.0',
-  serverName: 'honesty-mcp',
-  config: { command: 'npx', args: ['-y', 'honesty-mcp'] },
+  serverName: 'evidencekit',
+  config: { command: 'npx', args: ['-y', '@evidencekit/mcp'] },
 };
 
 /** Install links for the MCP server, built from documented formats. */
 export function mcpLinks(toBase64) {
   const json = JSON.stringify(MCP.config);
   return {
-    claudeCode: `claude mcp add ${MCP.serverName} -- npx -y honesty-mcp`,
+    claudeCode: `claude mcp add ${MCP.serverName} -- npx -y ${MCP.pkg}`,
     cursor: `cursor://anysphere.cursor-deeplink/mcp/install?name=${MCP.serverName}&config=${encodeURIComponent(toBase64(json))}`,
     vscode: `https://insiders.vscode.dev/redirect/mcp/install?name=${MCP.serverName}&config=${encodeURIComponent(json)}`,
     configJson: JSON.stringify({ mcpServers: { [MCP.serverName]: MCP.config } }, null, 2),
@@ -1038,7 +1068,7 @@ export function mcpLinks(toBase64) {
 /** A Markdown report of one result, for a pull request, issue or chat. */
 export function reportMarkdown(kit, result, link) {
   const sign = { ok: '✓', bad: '✗', warn: '!', info: 'i', skip: '–' };
-  const lines = [`**${kit.id}@${kit.version}: ${result.headline}**`, ''];
+  const lines = [`**${kit.pkg} (formerly ${kit.id}@${kit.version}): ${result.headline}**`, ''];
   if (result.summary) lines.push(result.summary, '');
   for (const row of result.rows) {
     lines.push(`- ${sign[row.mark]} ${row.title}${row.detail ? `: ${row.detail}` : ''}`);
