@@ -180,7 +180,10 @@ test('the README states the kit count and the honesty-mcp relationship in the ex
   assert.ok(readme.includes(`There are ${KITS.length} kits`), `README says "There are ${KITS.length} kits"`);
   assert.ok(readme.includes('Plus honesty-mcp, a separate package'), 'README names honesty-mcp as a separate package');
   assert.ok(jsonLd.description.includes(`all ${KITS.length} kits`), 'JSON-LD description counts the kits');
-  assert.ok(!/\b(13|thirteen)\s+kits\b/i.test(readme) && !/\b(12|twelve)\s+packages\b/i.test(readme), 'no bare 13 kits or 12 packages');
+  // The two easy slips: the package count called "kits" (honesty-mcp included), and the kit count called "packages".
+  const said = (n) => `(?:${n}|${Object.keys(WORDS).find((w) => WORDS[w] === n) ?? n})`;
+  assert.ok(!new RegExp(`\\b${said(KITS.length + 1)}\\s+kits\\b`, 'i').test(readme), `no bare ${KITS.length + 1} kits`);
+  assert.ok(!new RegExp(`\\b${said(KITS.length)}\\s+packages\\b`, 'i').test(readme), `no bare ${KITS.length} packages`);
 });
 
 test('honesty-mcp: the "tools for N of the kits" numbers match its source', { skip: mcpSkip }, () => {
@@ -252,7 +255,12 @@ test('"zero runtime dependencies, plain ESM with types": true of every installed
     assert.equal(pkg.type, 'module', `${kit.id} is ESM`);
     assert.ok(pkg.types || pkg.exports, `${kit.id} ships types`);
     const readme = read(`node_modules/${kit.id}/README.md`);
-    assert.match(readme, /^#{1,4} .*limit/im, `${kit.id} README has a limits section`);
+    // The section may be called "Limits", "Known limits" or "What it does not do". It must say something.
+    const heading = readme.match(/^(#{1,4}) .*(?:limit|does not do).*$/im);
+    assert.ok(heading, `${kit.id} README has a limits section`);
+    const after = readme.slice(heading.index + heading[0].length);
+    const next = after.search(new RegExp(`^#{1,${heading[1].length}} `, 'm'));
+    assert.ok((next === -1 ? after : after.slice(0, next)).trim().length > 300, `${kit.id} README limits section is not empty`);
   }
 });
 
@@ -295,7 +303,7 @@ const BANNED = [
   [/\bguarantee[sd]?\b/i, 'guarantee'],
   [/\bverified\b/i, '"verified" claim'],
   [/\btamper[- ]proof\b|\bunhackable\b|\b100%\s+(?:accurate|secure|safe)\b/i, 'absolute security or accuracy claim'],
-  [/\b(?:with|signed|attested|have|has)\s+(?:build\s+)?provenance\b|\bpublished from github\b/i, 'provenance claim about packages (six of 13 have none)'],
+  [/\b(?:with|signed|attested|have|has)\s+(?:build\s+)?provenance\b|\bpublished from github\b/i, 'provenance claim about packages (check the registry before saying it)'],
 ];
 const BRITISH = /\b(colour|behaviour|licence|favour|honour|centre|organis(?:e|ed|ing|ation)|catalogue|grey|analyse|cancelled|labelled|travelling|optimis(?:e|ed|ing))\w*\b/i;
 
@@ -328,8 +336,8 @@ test('the wording checks catch what they are meant to catch', () => {
   assert.ok(wordingProblems('x', 'All packages are published with provenance.').length === 1);
   assert.deepEqual(wordingProblems('x', 'Does it say "independently verified" without a source?'), []);
   assert.ok(countProblems('x', 'Try all 99 kits.').length === 1);
-  assert.ok(countProblems('x', 'It has 13 kits.').length === 1);
-  assert.ok(countProblems('x', 'It has 12 packages.').length === 1);
+  assert.ok(countProblems('x', `It has ${KITS.length + 1} kits.`).length === 1);
+  assert.ok(countProblems('x', `It has ${KITS.length} packages.`).length === 1);
   assert.ok(countProblems('x', 'Pick from 7777 examples.').length === 1);
   if (MCP_DIR) assert.ok(countProblems('x', 'honesty-mcp has tools for ten of them.').length === 1, 'a pronoun count is checked');
   assert.ok(countProblems('x', 'It is a thing, and there are ten of them.').length === 1, 'a pronoun count with no context is unplaced');

@@ -97,6 +97,8 @@ a { color: var(--accent); }
 .rail-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
 .rail button { width: 100%; text-align: left; display: grid; gap: 0; padding: 6px 10px; border: 0; border-radius: 2px; background: transparent; cursor: pointer; }
 .rail button:hover { background: var(--sheet); }
+/* The rail, the example row, the tabs, the result and the form clip or scroll, so an outside focus ring would be clipped at their edges. Draw it inside. */
+.rail button:focus-visible, .chip:focus-visible, .pane-tabs button:focus-visible, details.raw summary:focus-visible, .field textarea:focus-visible, .field input[type="text"]:focus-visible { outline-offset: -2px; }
 .rail button[aria-current="page"] { background: var(--ink); color: var(--sheet); }
 .rail .kit-name { font-weight: 600; font-size: var(--step--1); }
 .rail .kit-pkg { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted); }
@@ -105,8 +107,6 @@ a { color: var(--accent); }
 .rail-mcp button { padding: 0; color: var(--accent); background: none; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; display: inline; width: auto; }
 .rail-mcp button:hover { background: none; }
 
-.more-kits { margin: 0; font-size: var(--step--1); color: var(--muted); max-width: 70ch; }
-.more-kits a { color: var(--accent); text-underline-offset: 2px; }
 
 .picker { display: none; }
 .pane-tabs { display: none; }
@@ -215,6 +215,7 @@ pre.code { margin: 0; overflow: auto; background: var(--code-bg); border: 1px so
 .viz-svg text { font-family: var(--font-ui); fill: var(--ink); }
 .viz-svg .v-caption { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; fill: var(--muted); }
 .viz-svg .v-label { font-size: 12px; }
+.viz-svg .v-muted { fill: var(--muted); }
 .viz-svg .v-tick { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
 .viz-svg .v-value { font-family: var(--font-mono); font-size: 11px; }
 .viz-svg .v-strong { font-size: 13px; font-weight: 600; }
@@ -435,14 +436,13 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
         <div class="pane-foot" id="foot"></div>
       </section>
     </div>
-    <p class="more-kits">Also on GitHub, but not in this playground and not on npm yet: <a href="https://github.com/lkopietz3-byte/accuracy-claim-kit" target="_blank" rel="noopener">accuracy-claim-kit</a>, <a href="https://github.com/lkopietz3-byte/number-trace-kit" target="_blank" rel="noopener">number-trace-kit</a> and <a href="https://github.com/lkopietz3-byte/parity-kit" target="_blank" rel="noopener">parity-kit</a>.</p>
   </main>
 </div>
 
 <dialog id="agent-dialog" aria-labelledby="agent-title">
   <div class="dialog-inner">
     <h2 id="agent-title">Use these checks from your AI coding agent</h2>
-    <p><strong>honesty-mcp</strong> has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and other MCP clients (two of them hand you starter code instead of running a check). It runs on your machine with npx, and the kits make no network calls.</p>
+    <p><strong>honesty-mcp</strong> has tools for eleven of the 15 kits, for Claude Code, Cursor, VS Code and other MCP clients (two of them hand you starter code instead of running a check). The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet. It runs on your machine with npx, and the kits make no network calls.</p>
     <div class="install-buttons">
       <a class="btn btn-ink" id="add-cursor" href="#">Add to Cursor</a>
       <a class="btn" id="add-vscode" href="#" target="_blank" rel="noopener">Add to VS Code</a>

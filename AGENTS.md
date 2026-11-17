@@ -31,7 +31,7 @@ To move pinned kit versions, use `node tools/bump-kits.mjs <kit>@<version> ...`.
 ## Honest copy
 
 - Plain, specific, American spelling. No em dashes.
-- Say "12 kits plus honesty-mcp" or "13 packages". Never a bare "13 kits" or "12 packages". Derive the numbers from `KITS`.
+- Say "15 kits plus honesty-mcp" or "16 packages". Never a bare "16 kits" or "15 packages". Derive the numbers from `KITS`.
 - Do not claim that all packages are published with provenance. Check the registry before saying anything about provenance.
 - No certification, fraud-detection, "verified" or "catches fake reviews" claims the code does not back.
 - No invented numbers, prices, quotes or testimonials.

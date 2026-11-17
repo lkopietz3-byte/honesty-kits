@@ -9,7 +9,7 @@ Pick a kit, edit a real example, and see the verdict, a graphic of what it found
 
 ## The kits
 
-There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. These are the kits in the playground. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
+There are 15 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. These are the kits in the playground. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
 
 ### Check what your AI writes
 
@@ -17,6 +17,7 @@ There are 12 kits, each its own npm package, MIT licensed, with zero runtime dep
 | --- | --- | --- |
 | [grounding-kit](https://github.com/lkopietz3-byte/grounding-kit) | Does each sentence cite evidence that actually says it? Flags uncited claims and citations that point at the wrong evidence. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#grounding-kit) |
 | [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit) | Does the copy sound more certain than its source allows ("independently verified", "guaranteed")? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#provenance-kit) |
+| [number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit) | Does every number in an AI answer appear in the evidence it was given, and do the rows add up to the printed total? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#number-trace-kit) |
 | [corroboration-kit](https://github.com/lkopietz3-byte/corroboration-kit) | How strong is the evidence for a claim, and does it point for or against it? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#corroboration-kit) |
 
 ### Keep public claims honest
@@ -24,6 +25,8 @@ There are 12 kits, each its own npm package, MIT licensed, with zero runtime dep
 | Kit | What it checks | Try it |
 | --- | --- | --- |
 | [claims-registry-kit](https://github.com/lkopietz3-byte/claims-registry-kit) | Is every claim on your site still backed by evidence someone checked recently? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#claims-registry-kit) |
+| [accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit) | Do the counts behind an accuracy or error-rate figure carry it? Shows the interval the counts allow and a statement the evidence supports. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#accuracy-claim-kit) |
+| [parity-kit](https://github.com/lkopietz3-byte/parity-kit) | Does every copy of a fact still match its source, and did a review date move for a reason you can see in the data? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#parity-kit) |
 | [freshness-kit](https://github.com/lkopietz3-byte/freshness-kit) | How old is this information, and what should its "last reviewed" label say? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#freshness-kit) |
 
 ### Test ranking and decision code
@@ -48,19 +51,9 @@ There are 12 kits, each its own npm package, MIT licensed, with zero runtime dep
 | --- | --- | --- |
 | [cost-governor-kit](https://github.com/lkopietz3-byte/cost-governor-kit) | Will the next model call push you over budget? Cache-aware pricing and a pre-call ceiling. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#cost-governor-kit) |
 
-### Newer kits on npm
-
-These newer kits are published to npm. They are not in the playground yet, and honesty-mcp does not cover them yet.
-
-| Kit | What it checks |
-| --- | --- |
-| [accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit) | Does this accuracy or error-rate number have the evidence to carry it? Confidence intervals and rater agreement, computed from the counts you supply. |
-| [number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit) | Does every number in an AI output trace to the evidence it was given, and do rows add up to the printed totals? |
-| [parity-kit](https://github.com/lkopietz3-byte/parity-kit) | Does every copy of a fact still match its source of truth, and was a review date earned by an actual recheck? |
-
 ## Use them from your AI coding agent
 
-[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) has tools for eleven of the 12 kits, for Claude Code, Cursor, VS Code and any other MCP client. Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx.
+[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) has tools for eleven of the 15 kits, for Claude Code, Cursor, VS Code and any other MCP client. Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx. The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet.
 
 ```bash
 claude mcp add honesty-mcp -- npx -y honesty-mcp
