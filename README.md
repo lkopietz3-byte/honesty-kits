@@ -48,9 +48,9 @@ There are 12 kits, each its own npm package, MIT licensed, with zero runtime dep
 | --- | --- | --- |
 | [cost-governor-kit](https://github.com/lkopietz3-byte/cost-governor-kit) | Will the next model call push you over budget? Cache-aware pricing and a pre-call ceiling. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#cost-governor-kit) |
 
-### Also on GitHub, not on npm yet
+### Newer kits on npm
 
-More kit repositories are public. They are not in the playground, they are not covered by honesty-mcp, and they are not published to npm yet, so install them from their repositories for now.
+These newer kits are published to npm. They are not in the playground yet, and honesty-mcp does not cover them yet.
 
 | Kit | What it checks |
 | --- | --- |
