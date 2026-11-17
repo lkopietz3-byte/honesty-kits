@@ -156,3 +156,27 @@ test('K5 interval: a judged end of a printed range is labeled with the range it 
     assert.match(textsOf(viz, width).join(' | '), /98-99\.8%/, `${width}px`);
   }
 });
+
+test('R1 interval: a near-perfect exact count and its claim never read as 100%', { timeout: 5000 }, async () => {
+  const kit = KITS.find((k) => k.id === 'accuracy-claim-kit');
+  const input = {
+    claim: { metric: 'accuracy', value: 0.99999999, text: 'Scores this on BenchX' },
+    evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } },
+  };
+  const { viz } = await kit.run(await import(kit.id), input);
+  for (const width of WIDTHS) {
+    check(viz, width, `near-perfect at ${width}px`);
+    const texts = textsOf(viz, width);
+    assert.ok(texts.includes('99.999999% claimed'), `${width}px: ${JSON.stringify(texts)}`);
+    // The axis may carry a 100% tick (a label that is only a percent); the claim and the count may not read as 100%.
+    const words = texts.filter((t) => !/^\d+(?:\.\d+)?%$/.test(t)).join(' ');
+    assert.doesNotMatch(words, /(?<![\d.])100(?:\.0+)?%/, `${width}px: ${words}`);
+  }
+});
+
+test('R3 interval: the exact-count note fits bounds and ranges, not only a single figure', { timeout: 5000 }, () => {
+  const viz = { type: 'interval', better: 'higher', claimed: 0.98, display: '98%+', verdict: 'supported', mark: 'ok', interval: null, census: { point: 0.99, successes: 990, n: 1000 } };
+  const texts = textsOf(viz, 960).join(' ');
+  assert.doesNotMatch(texts, /has to match the count/, texts);
+  assert.match(texts, /consistent with the exact count/, texts);
+});

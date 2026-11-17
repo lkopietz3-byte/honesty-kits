@@ -213,3 +213,18 @@ test('K4 parity: the snippet sends each option only to the check that accepts it
   assert.equal(run.status, 1, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
   assert.doesNotMatch(run.stderr, /unknown option/);
 });
+
+test('R2 accuracy: the snippet refuses a claim inside the evidence, as the playground does, even when the outer claim is supported', async () => {
+  const kit = kitOf('accuracy-claim-kit');
+  const supported = { claim: { metric: 'accuracy', value: 0.98, display: '98%' }, evidence: structuredClone(kit.presets[0].input.evidence) };
+  const plain = runSnippet(kit, supported);
+  assert.equal(plain.status, 0, `the outer claim alone passes, so only the refusal can fail the next run: ${plain.stdout}${plain.stderr}`);
+  const input = structuredClone(supported);
+  input.evidence.claim = { metric: 'accuracy', value: 0.999, display: '99.9%' };
+  const mod = await import('accuracy-claim-kit');
+  await assert.rejects(async () => kit.run(mod, structuredClone(input)), /Put the figure in the claim field/, 'the playground refuses it');
+  const run = runSnippet(kit, input);
+  assert.notEqual(run.status, 0, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
+  assert.match(run.stderr, /Put the figure in the claim field/);
+  assert.doesNotMatch(run.stdout, /supported/, 'the snippet stops before judging anything');
+});

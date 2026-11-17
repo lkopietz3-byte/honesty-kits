@@ -434,7 +434,15 @@ function budget(v, W, motion) {
 function interval(v, W, motion) {
   const pad = 26;
   const iv = v.interval;
-  const pct = (x, d = 2) => `${(x * 100).toFixed(d)}%`;
+  // At least two decimals, and more when two would print a rate short of 100% as 100%
+  // (or a rate above 0% as 0%), so a near-perfect count never reads as perfect.
+  const pct = (x) => {
+    for (let d = 2; d <= 15; d += 1) {
+      const s = (x * 100).toFixed(d);
+      if ((x >= 1 || Number(s) < 100) && (x <= 0 || Number(s) > 0)) return `${s}%`;
+    }
+    return `${x * 100}%`;
+  };
   const verdictText = { supported: 'supported', contradicted: 'contradicted', overstated: 'overstated', refused: 'refused' }[v.verdict] ?? v.verdict;
   const census = v.census ?? null;
   const points = [...(v.claimed === null ? [] : [v.claimed]), ...(iv ? [iv.low, iv.high, iv.point] : []), ...(census ? [census.point] : [])];
@@ -462,7 +470,7 @@ function interval(v, W, motion) {
   if (v.claimed === null) rows.push({ kind: 'none', text: 'The figure is not a proportion, so it cannot be placed on this scale.' });
   else if (v.from) rows.push({ kind: 'note', text: `The kit judged ${v.display}, read from the printed figure ${v.from}.` });
   if (iv) rows.push({ kind: 'note', text: v.better === 'lower' ? 'A claim below the band goes beyond the counts.' : 'A claim above the band goes beyond the counts.' });
-  else if (census) rows.push({ kind: 'note', text: 'The whole set was checked, so there is no interval. The figure has to match the count.' });
+  else if (census) rows.push({ kind: 'note', text: 'The whole set was checked, so there is no interval. The figure has to be consistent with the exact count.' });
   // Rows wrap instead of cutting off, so both ends of the interval stay readable on a phone.
   for (const row of rows) row.lines = wrap(row.text, W - pad * 2 - (row.kind === 'band' || row.kind === 'point' ? 28 : 0), 'label', 4);
   const LINE = 16;

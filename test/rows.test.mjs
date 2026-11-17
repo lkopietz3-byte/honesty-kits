@@ -371,3 +371,58 @@ test('K11 accuracy: a claim with no display is shown as its percentage', async (
   assert.equal(result.viz.display, '98%');
   assert.doesNotMatch(JSON.stringify({ h: result.headline, s: result.summary, r: result.rows, v: result.viz }), /undefined/);
 });
+
+// A rate short of 100% must never print as 100%, in the headline, the summary or the graphic.
+const READS_PERFECT = /(?<![\d.])100(?:\.0+)?%/;
+const nearPerfect = (claim, sampling = 'complete') => ({
+  claim: { metric: 'accuracy', text: 'Scores this on BenchX', ...claim },
+  evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling, ...(sampling === 'complete' ? { benchmark: { name: 'BenchX' } } : {}) },
+});
+test('R1 accuracy: a near-perfect rate keeps its digits and never reads as 100%', async () => {
+  const plain = await run('accuracy-claim-kit', nearPerfect({ value: 0.99999999 }));
+  assert.equal(plain.raw.verdict, 'supported');
+  assert.equal(plain.headline, 'The counts carry 99.999999%.');
+  assert.equal(plain.viz.display, '99.999999%');
+  assert.doesNotMatch(plain.summary, READS_PERFECT, plain.summary);
+  const range = await run('accuracy-claim-kit', nearPerfect({ value: 0.99, display: '99-99.999999%' }));
+  assert.equal(range.raw.assessedValue, 0.99999999);
+  assert.equal(range.viz.display, '99.999999%', 'the judged end of the range keeps its digits');
+  assert.doesNotMatch(range.summary, READS_PERFECT, range.summary);
+  const sampled = await run('accuracy-claim-kit', nearPerfect({ value: 0.99999998, text: 'Scores this' }, 'random'));
+  assert.ok(sampled.viz.interval.high < 1);
+  assert.doesNotMatch(sampled.summary, READS_PERFECT, sampled.summary);
+  // Ordinary figures keep their short form.
+  assert.equal((await run('accuracy-claim-kit', counted({ metric: 'accuracy', value: 0.98 }))).viz.display, '98%');
+});
+
+test('R3 accuracy: an exact count is described as consistent with a bound or range, not matched by it', async () => {
+  for (const display of ['98%+', '98-99%']) {
+    const result = await run('accuracy-claim-kit', { ...census, claim: { metric: 'accuracy', value: 0.98, display, text: `Scores ${display} on BenchX` } });
+    assert.equal(result.raw.verdict, 'supported', display);
+    assert.equal(result.rows[0].title, 'The figure is consistent with the exact count', display);
+  }
+});
+
+test('R4 parity: the headline counts each repeated id once, however many places repeat it', async () => {
+  const input = parityInput(2);
+  input.source.push({ ...input.source[0] });
+  input.copy.push({ ...input.copy[0] });
+  input.earlier = [];
+  const result = await run('parity-kit', input);
+  assert.equal(result.rows.filter((r) => /more than once/.test(r.title)).length, 2, 'one row per place the id repeats');
+  assert.match(result.headline, /\b1 id appears more than once/, result.headline);
+});
+
+test('R5 parity: separate bulk review dates are not reported as one date', async () => {
+  const at = (id, price, lastReviewed) => ({ id, name: id, priceUsd: price, source: 'https://example.test/pricing', lastReviewed });
+  const earlier = ['a', 'b', 'c', 'd'].map((id) => at(id, 10, '2026-04-01'));
+  const source = [at('a', 11, '2026-10-01'), at('b', 11, '2026-10-01'), at('c', 11, '2026-10-02'), at('d', 11, '2026-10-02')];
+  const result = await run('parity-kit', { source, copy: structuredClone(source), earlier, options: { reviewedField: 'lastReviewed', sourceFields: ['source'], bulkThreshold: 1 } });
+  assert.equal(result.raw.dates.bulkBump.length, 2);
+  assert.equal(result.raw.dates.stampOnly.length, 0);
+  assert.doesNotMatch(result.headline, /one review date/, result.headline);
+  assert.match(result.headline, /4 records moved in bulk to 2 review dates/, result.headline);
+  const one = await run('parity-kit', { source: source.map((r) => ({ ...r, lastReviewed: '2026-10-01' })), copy: source.map((r) => ({ ...r, lastReviewed: '2026-10-01' })), earlier, options: { reviewedField: 'lastReviewed', sourceFields: ['source'], bulkThreshold: 1 } });
+  assert.equal(one.raw.dates.bulkBump.length, 1);
+  assert.match(one.headline, /4 records moved to one review date at once/, one.headline);
+});

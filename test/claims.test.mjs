@@ -12,10 +12,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { KITS, GROUPS } from '../demos.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -32,26 +32,39 @@ function findMcpDir() {
 const MCP_DIR = findMcpDir();
 const mcpSkip = MCP_DIR ? false : 'honesty-mcp source not found (set HONESTY_MCP_DIR); NOT_RUN';
 
+/**
+ * Whether honesty-mcp runs caller code when its environment variable is not set: its own
+ * isCodeExecEnabled, called with an empty environment, from its source (Node strips the types).
+ */
+async function codeExecByDefault(dir) {
+  const { isCodeExecEnabled } = await import(pathToFileURL(path.join(dir, 'src/lib/codeExec.ts')).href);
+  const on = isCodeExecEnabled({});
+  assert.equal(typeof on, 'boolean', 'isCodeExecEnabled({}) returns a boolean');
+  return on;
+}
+const MCP_CODE_EXEC_DEFAULT = MCP_DIR ? await codeExecByDefault(MCP_DIR) : undefined;
+
 /** What the honesty-mcp source says it registers and which of our kits it wraps. */
-function mcpFacts() {
-  const server = readFileSync(path.join(MCP_DIR, 'src/server.ts'), 'utf8');
+function mcpFacts(dir = MCP_DIR, codeExecOn = MCP_CODE_EXEC_DEFAULT) {
+  const server = readFileSync(path.join(dir, 'src/server.ts'), 'utf8');
   const toolFiles = [...server.matchAll(/from "\.\/tools\/([A-Za-z]+)\.js"/g)].map((m) => m[1]);
   const tools = new Set();
   const kitsInSource = new Set();
   // A tool file that returns before registering anything while code execution is off
   // adds its kit only with the switch on; every other file's kits are in the default list.
+  // Whether the switch is on with no setting comes from honesty-mcp itself (codeExecOn).
   const kitsByDefault = new Set();
   for (const file of toolFiles) {
-    const src = readFileSync(path.join(MCP_DIR, `src/tools/${file}.ts`), 'utf8');
+    const src = readFileSync(path.join(dir, `src/tools/${file}.ts`), 'utf8');
     const gated = /if\s*\(\s*!isCodeExecEnabled\(\)\s*\)\s*return\s*;/.test(src);
     for (const m of src.matchAll(/registerTool\(\s*"([a-z_]+)"/g)) tools.add(m[1]);
     for (const id of KIT_IDS) {
       if (!new RegExp(`["']${id}["']`).test(src)) continue;
       kitsInSource.add(id);
-      if (!gated) kitsByDefault.add(id);
+      if (!gated || codeExecOn) kitsByDefault.add(id);
     }
   }
-  const deps = Object.keys(JSON.parse(readFileSync(path.join(MCP_DIR, 'package.json'), 'utf8')).dependencies ?? {});
+  const deps = Object.keys(JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).dependencies ?? {});
   const kitsInDeps = KIT_IDS.filter((id) => deps.includes(id));
   return { tools: [...tools], kitsInSource: [...kitsInSource].sort(), kitsInDeps: kitsInDeps.sort(), kitsByDefault: [...kitsByDefault].sort() };
 }
@@ -365,4 +378,30 @@ test('the wording checks catch what they are meant to catch', () => {
   assert.ok(countProblems('x', 'The page has seven ES modules.').length === 1, 'an ES module count is checked');
   assert.ok(countProblems('x', 'There are twelve of something.').length === 1, 'an unplaced spelled-out number fails');
   assert.deepEqual(countProblems('x', `Try all ${KITS.length} kits and ${KITS.length + 1} packages and ${EXAMPLES} examples.`), []);
+});
+
+// R6: the default kit count comes from honesty-mcp's own default, isCodeExecEnabled({}), not
+// only from the guard in a tool file. A copy of its source with the default flipped shows the
+// count would change, so the README's default number would then fail the test above.
+test('honesty-mcp: the default kit count follows its code-execution default, not only the registration guard', { skip: mcpSkip }, async () => {
+  assert.equal(MCP_CODE_EXEC_DEFAULT, false, 'honesty-mcp ships with code execution off when the variable is unset');
+  const stated = ['README.md', 'src/page.html'].flatMap((name) => countClaims(SURFACES.find(([n]) => n === name)[1]).filter((c) => c.kind === 'mcp-default'));
+  assert.ok(stated.length > 0, 'the README and the page state the default number');
+  const copy = mkdtempSync(path.join(tmpdir(), 'honesty-mcp-default-on-'));
+  try {
+    cpSync(path.join(MCP_DIR, 'src'), path.join(copy, 'src'), { recursive: true });
+    cpSync(path.join(MCP_DIR, 'package.json'), path.join(copy, 'package.json'));
+    const file = path.join(copy, 'src/lib/codeExec.ts');
+    const src = readFileSync(file, 'utf8');
+    const flipped = src.replace(/(export const CODE_EXEC_ENABLED_BY_DEFAULT\s*=\s*)false\b/, '$1true');
+    assert.notEqual(flipped, src, 'codeExec.ts still names its default in CODE_EXEC_ENABLED_BY_DEFAULT');
+    writeFileSync(file, flipped);
+    const on = await codeExecByDefault(copy);
+    assert.equal(on, true, 'the flipped copy runs caller code by default');
+    const facts = mcpFacts(copy, on);
+    assert.equal(facts.kitsByDefault.length, facts.kitsInDeps.length, 'with the switch on by default, every wrapped kit is in the default list');
+    for (const c of stated) assert.notEqual(c.n, facts.kitsByDefault.length, `"${c.phrase}" would no longer match, so the check above would fail`);
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
 });

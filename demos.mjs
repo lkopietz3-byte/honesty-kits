@@ -11,6 +11,20 @@
 // Nothing here re-implements a kit's logic; it only arranges the output.
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * A proportion as a percent with at least `digits` decimals, and more when fewer would
+ * print a rate short of 100% as 100%, or a rate above 0% as 0%. No % sign.
+ */
+const percentDigits = (x, digits) => {
+  for (let d = digits; d <= 15; d += 1) {
+    const s = (x * 100).toFixed(d);
+    if ((x >= 1 || Number(s) < 100) && (x <= 0 || Number(s) > 0)) return s;
+  }
+  return String(x * 100);
+};
+
+const EVIDENCE_CLAIM_REFUSAL = 'Put the figure in the claim field, not inside the evidence. The evidence holds the counts, who labeled and how items were picked.';
 const clip = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 /**
  * How long ago a stale claim was checked, set against its limit. Newer claims-registry
@@ -730,11 +744,11 @@ if (stale > 0) process.exitCode = 1;
       // The claim field is the figure being judged. A claim inside the evidence would
       // quietly replace it, so it is refused rather than merged.
       if (input.evidence && typeof input.evidence === 'object' && Object.hasOwn(input.evidence, 'claim')) {
-        throw new TypeError('Put the figure in the claim field, not inside the evidence. The evidence holds the counts, who labeled and how items were picked.');
+        throw new TypeError(EVIDENCE_CLAIM_REFUSAL);
       }
       const r = kit.assessAccuracyClaim({ ...input.evidence, claim: input.claim });
-      const pct = (x) => `${(x * 100).toFixed(2)}%`;
-      const asPercent = (x) => `${Number((x * 100).toFixed(4))}%`;
+      const pct = (x) => `${percentDigits(x, 2)}%`;
+      const asPercent = (x) => `${Number(percentDigits(x, 4))}%`;
       // display is optional; without it the figure is the value, written as a percent.
       const display = typeof input.claim.display === 'string' ? input.claim.display : asPercent(r.claimed);
       // The kit judges the more favorable of the value and the printed figure (the top of
@@ -746,7 +760,7 @@ if (stale > 0) process.exitCode = 1;
       const TITLES = {
         'claim-within-bound': 'The figure is within what the counts support',
         'matches-observed-rate': 'The figure is the rate the counts show',
-        'census-matches-count': 'The figure matches the exact count',
+        'census-matches-count': 'The figure is consistent with the exact count',
         'claim-differs-from-count': 'The figure does not match the exact count',
         'claim-outside-interval': 'The figure goes past what the counts allow',
         'claim-beyond-conservative-bound': 'The figure is more than the counts carry',
@@ -847,7 +861,13 @@ if (stale > 0) process.exitCode = 1;
 const claim = ${js(input.claim)};
 const evidence = ${js(input.evidence)};
 
-const result = assessAccuracyClaim({ ...evidence, claim }); // the claim above is the one judged
+// The claim above is the figure judged. A claim inside the evidence would quietly replace it,
+// so it is refused, as in the playground.
+if (evidence && typeof evidence === 'object' && Object.hasOwn(evidence, 'claim')) {
+  throw new TypeError(${JSON.stringify(EVIDENCE_CLAIM_REFUSAL)});
+}
+
+const result = assessAccuracyClaim({ ...evidence, claim });
 console.log(result.verdict, result.reasons.join(', '));
 for (const line of result.explanation) console.log(' -', line);
 console.log('Say this instead:', result.suggestedStatement);
@@ -944,9 +964,12 @@ if (result.verdict !== 'supported') process.exitCode = 1;
       // A repeated id makes the kit flag the check, so it is a problem row, listed once even
       // when both checks see it in the source.
       const dupes = new Set();
+      // The headline counts each repeated id once, wherever it repeats.
+      const dupeIds = new Set();
       const problemRows = (report) => {
         for (const d of report.duplicateKeys) {
           const where = SIDE[d.side] ?? d.side;
+          dupeIds.add(d.id);
           if (dupes.has(`${where}|${d.id}`)) continue;
           dupes.add(`${where}|${d.id}`);
           rows.push({ mark: 'bad', title: `${d.id} appears more than once in the ${where}`, detail: `Positions ${d.positions.join(', ')}. The kit cannot tell which record is right.`, fix: 'Keep one record per id.' });
@@ -990,11 +1013,15 @@ if (result.verdict !== 'supported') process.exitCode = 1;
       const parts = [];
       const drift = mirror.missing.length + mirror.extra.length + mirror.changed.length;
       if (drift) parts.push(`the copy has drifted from its source in ${plural(drift, 'place')}`);
-      if (dupes.size) parts.push(`${plural(dupes.size, 'id')} ${dupes.size === 1 ? 'appears' : 'appear'} more than once`);
+      if (dupeIds.size) parts.push(`${plural(dupeIds.size, 'id')} ${dupeIds.size === 1 ? 'appears' : 'appear'} more than once`);
       if (audit) {
         const n = (list, one, rest) => `${plural(list.length, one)}${rest}`;
         if (audit.stampOnly.length) parts.push('review dates moved with nothing in the data to show a recheck');
-        else if (audit.bulkBump.length) parts.push(`${plural(audit.bulkBump.reduce((t, b) => t + b.count, 0), 'record')} moved to one review date at once`);
+        else if (audit.bulkBump.length) {
+          // Each bulk bump is one new review date; several bumps are several dates.
+          const moved = plural(audit.bulkBump.reduce((t, b) => t + b.count, 0), 'record');
+          parts.push(audit.bulkBump.length === 1 ? `${moved} moved to one review date at once` : `${moved} moved in bulk to ${plural(audit.bulkBump.length, 'review date')}`);
+        }
         if (audit.backward.length) parts.push(n(audit.backward, 'review date', ' moved earlier'));
         if (audit.future.length) parts.push(n(audit.future, 'review date', audit.future.length === 1 ? ' is in the future' : ' are in the future'));
         if (audit.extendedDeadlines.length) parts.push(n(audit.extendedDeadlines, 'deadline', ' pushed later with no change to the source'));
