@@ -272,3 +272,102 @@ test('parity: a misspelled date field is a warning, named once, not a pass', asy
   assert.equal(result.tone, 'warn');
   assert.equal(titles(result).filter((t) => /lastReviwed appears in no record/.test(t)).length, 1);
 });
+
+// ------------------------------------------- results must not read cleaner than the kit
+test('K2 accuracy: a claim inside the evidence cannot replace the claim being judged', async () => {
+  const input = counted({ metric: 'accuracy', value: 0.999, display: '99.9%' }, { claim: { metric: 'accuracy', value: 0.98, display: '98%' } });
+  await assert.rejects(run('accuracy-claim-kit', input), /claim field/);
+});
+
+test('K3 numbers: a match that drops a sign or a unit is a qualified match, not a green pass', async () => {
+  const sign = await run('number-trace-kit', { evidence: 'The balance is -$50.', output: 'The balance is $50.', table: null, mode: 'strict' });
+  assert.ok(sign.raw.trace.numbers[0].signDiffers, 'the kit flags the dropped sign');
+  const signRow = sign.rows.find((r) => r.highlight === '$50');
+  assert.equal(signRow.mark, 'warn');
+  assert.match(signRow.detail, /sign/);
+  assert.ok(signRow.fix, 'a qualified match offers a fix');
+  assert.notEqual(sign.tone, 'pass');
+  const unit = await run('number-trace-kit', { evidence: 'Growth was 50.', output: 'Growth was 50%.', table: null, mode: 'report' });
+  assert.ok(unit.raw.trace.numbers[0].unitUnverified, 'the kit flags the unit on one side only');
+  const unitRow = unit.rows.find((r) => r.highlight === '50%');
+  assert.equal(unitRow.mark, 'warn');
+  assert.match(unitRow.detail, /unit/);
+  assert.notEqual(unit.tone, 'pass');
+});
+
+test('K4 parity: options meant for one check are not sent to the other', async () => {
+  const withNow = parityInput(1);
+  withNow.options.now = '2026-11-01T00:00:00Z';
+  const a = await run('parity-kit', withNow);
+  assert.equal(a.tone, 'fail', 'the date check still runs and flags the moved dates');
+  const withTolerance = parityInput(1);
+  withTolerance.options.numberTolerance = 0;
+  const b = await run('parity-kit', withTolerance);
+  assert.equal(b.tone, 'fail');
+  const misspelled = parityInput(1);
+  misspelled.options.nowe = '2026-11-01T00:00:00Z';
+  await assert.rejects(run('parity-kit', misspelled), /unknown option/, 'an unknown option still reaches the kit and is refused');
+});
+
+test('K5 accuracy: the graphic marks the figure the kit judged, the favorable end of a printed range', async () => {
+  const result = await run('accuracy-claim-kit', accuracy('98-99.8%', 0.98));
+  assert.equal(result.raw.assessedValue, 0.998);
+  assert.equal(result.viz.claimed, result.raw.assessedValue);
+  assert.match(result.viz.display, /99\.8%/);
+  assert.match(result.viz.from ?? '', /98-99\.8%/, 'the graphic names the printed figure the judged end came from');
+});
+
+const census = {
+  claim: { metric: 'accuracy', value: 0.99, display: '99%', text: 'Scores 99% on BenchX' },
+  evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } },
+};
+test('K6 accuracy: an exact count on a complete set is a result, not missing evidence', async () => {
+  const result = await run('accuracy-claim-kit', census);
+  assert.equal(result.raw.basis, 'census');
+  assert.equal(result.tone, 'pass');
+  assert.doesNotMatch(result.summary, /incomplete|complete before/);
+  assert.match(result.summary, /990 of 1000/);
+  assert.equal(result.rows[0].mark, 'ok', `first row: ${result.rows[0].title}`);
+  assert.deepEqual(result.viz.census, { point: 0.99, successes: 990, n: 1000 });
+  const off = await run('accuracy-claim-kit', { ...census, claim: { ...census.claim, value: 0.995, display: '99.5%', text: 'Scores 99.5% on BenchX' } });
+  assert.equal(off.raw.verdict, 'contradicted');
+  assert.equal(off.tone, 'fail');
+  assert.equal(off.rows[0].mark, 'bad');
+});
+
+test('K8 numbers: the sum row shows the amounts the kit added, and a tolerance match is not called exact', async () => {
+  const minor = await run('number-trace-kit', { ...traceInput(1), table: { rows: [{ label: 'Subtotal', amount: 200 }, { label: 'Tax', amount: 99 }], total: '2.99' } });
+  const row = minor.rows.find((r) => /printed total/.test(r.title));
+  assert.equal(row.detail, '2.00 + 0.99 = 2.99.');
+  const near = await run('number-trace-kit', { ...traceInput(1), table: { rows: [{ label: 'Subtotal', amount: '2.00' }, { label: 'Tax', amount: '0.99' }], total: '3.00', tolerance: '0.01' } });
+  assert.equal(near.raw.reconcile.ok, true);
+  const nearRow = near.rows.find((r) => /printed total/.test(r.title));
+  assert.doesNotMatch(nearRow.detail, /=/);
+  assert.match(nearRow.detail, /2\.99.*3\.00.*0\.01/);
+  assert.match(nearRow.title, /tolerance/);
+  assert.match(near.headline, /tolerance/);
+});
+
+test('K9 parity: the headline names the actual cause, a duplicate id or a date moved earlier', async () => {
+  const dup = parityInput(2);
+  dup.copy.push({ ...dup.copy[0] });
+  dup.earlier = [];
+  const d = await run('parity-kit', dup);
+  assert.equal(d.raw.copy.status, 'flagged');
+  assert.doesNotMatch(d.headline, /0 places/);
+  assert.match(d.headline, /more than once/);
+  assert.equal(d.rows.find((r) => /more than once/.test(r.title)).mark, 'bad', 'a flagged duplicate is a problem row');
+  const back = parityInput(2);
+  back.earlier = back.source.map((r) => ({ ...r, lastReviewed: '2026-12-01' }));
+  const b = await run('parity-kit', back);
+  assert.equal(b.raw.dates.backward.length, 3);
+  assert.doesNotMatch(b.headline, /nothing in the data/);
+  assert.match(b.headline, /moved earlier/);
+});
+
+test('K11 accuracy: a claim with no display is shown as its percentage', async () => {
+  const result = await run('accuracy-claim-kit', counted({ metric: 'accuracy', value: 0.98 }));
+  assert.equal(result.headline, 'The counts carry 98%.');
+  assert.equal(result.viz.display, '98%');
+  assert.doesNotMatch(JSON.stringify({ h: result.headline, s: result.summary, r: result.rows, v: result.viz }), /undefined/);
+});

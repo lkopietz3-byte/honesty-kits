@@ -113,3 +113,46 @@ test('interval: claims at, inside and beyond the band, either direction, at ever
     for (const width of WIDTHS) check({ type: 'interval', ...c }, width, `interval case ${i} at ${width}px`);
   }
 });
+
+// Every text node a graphic draws, with its ancestors' content.
+const textsOf = (viz, width) => {
+  const fig = renderViz(viz, { width, animate: false });
+  return nodesOf(fig.children[0]).map(([n]) => n).filter((n) => n.tagName === 'text' && n.text).map((n) => n.text);
+};
+const pct2 = (x) => `${(x * 100).toFixed(2)}%`;
+
+test('K7 interval: both bounds of the interval stay visible, unclipped, at phone widths', { timeout: 5000 }, async () => {
+  const kit = KITS.find((k) => k.id === 'accuracy-claim-kit');
+  const mod = await import(kit.id);
+  // 328px is the graphic's width on a 390px phone (the pane's padding and borders come off).
+  for (const width of [...WIDTHS, 328, 390]) {
+    for (const [i, preset] of kit.presets.entries()) {
+      const { viz } = await kit.run(mod, structuredClone(preset.input));
+      if (!viz.interval) continue;
+      check(viz, width, `accuracy preset ${i} at ${width}px`);
+      const texts = textsOf(viz, width);
+      for (const bound of [pct2(viz.interval.low), pct2(viz.interval.high)]) {
+        assert.ok(texts.some((t) => t.split(/\s+/).includes(bound) || t.includes(`${bound} `) || t.endsWith(bound)), `preset ${i} at ${width}px shows ${bound}: ${JSON.stringify(texts)}`);
+      }
+      assert.ok(!texts.some((t) => t.endsWith('…')), `preset ${i} at ${width}px cuts a label: ${JSON.stringify(texts)}`);
+    }
+  }
+});
+
+test('K6 interval: an exact count on a complete set is drawn as a result, not as missing evidence', { timeout: 5000 }, () => {
+  const viz = { type: 'interval', better: 'higher', claimed: 0.99, display: '99%', verdict: 'supported', mark: 'ok', interval: null, census: { point: 0.99, successes: 990, n: 1000 } };
+  for (const width of WIDTHS) {
+    check(viz, width, `census at ${width}px`);
+    const texts = textsOf(viz, width).join(' | ');
+    assert.doesNotMatch(texts, /incomplete/, `${width}px: ${texts}`);
+    assert.match(texts, /990\sof\s1000/, `${width}px: ${texts}`); // \s: the count is kept on one line with no-break spaces
+  }
+});
+
+test('K5 interval: a judged end of a printed range is labeled with the range it came from', { timeout: 5000 }, () => {
+  const viz = { type: 'interval', better: 'higher', claimed: 0.998, display: '99.8%', from: '98-99.8%', verdict: 'contradicted', mark: 'bad', interval: { low: 0.98169, high: 0.99456, point: 0.99, confidence: 0.95, successes: 990, n: 1000 } };
+  for (const width of WIDTHS) {
+    check(viz, width, `range end at ${width}px`);
+    assert.match(textsOf(viz, width).join(' | '), /98-99\.8%/, `${width}px`);
+  }
+});

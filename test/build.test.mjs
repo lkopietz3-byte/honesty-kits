@@ -57,3 +57,38 @@ test('preloads and fonts point at files that exist', () => {
   const licenses = readdirSync(new URL('fonts/', dist)).filter((f) => f.startsWith('OFL-'));
   assert.equal(licenses.length, 2, 'both font licenses ship with the fonts');
 });
+
+// ---------------------------------------------- focus rings on selected controls
+// A selected rail button or pane tab is filled with --ink. Its inset focus ring is
+// drawn on that fill, so the ring color must reach 3:1 against it (WCAG 1.4.11)
+// in both themes.
+test('K10 the inset focus ring on a selected rail button or tab contrasts with its fill', () => {
+  const css = readFileSync(new URL('src/page.html', root), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1].replace(/\/\*[\s\S]*?\*\//g, '');
+  const tokensIn = (block) => Object.fromEntries([...block.matchAll(/--([a-z-]+):\s*(#[0-9A-Fa-f]{6})/g)].map((m) => [m[1], m[2]]));
+  const light = tokensIn(css.match(/:root\s*\{([^}]*)\}/)[1]);
+  const darkMedia = tokensIn(css.match(/:root:not\(\[data-theme="light"\]\)\s*\{([^}]*)\}/)[1]);
+  const darkPicked = tokensIn(css.match(/:root\[data-theme="dark"\]\s*\{([^}]*)\}/)[1]);
+  assert.deepEqual(darkMedia, darkPicked, 'both dark-theme blocks define the same colors');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selectors: m[1].split(',').map((s) => s.trim()), body: m[2] }));
+  const decl = (selector, prop) => {
+    let value;
+    for (const r of rules) if (r.selectors.includes(selector)) for (const m of r.body.matchAll(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, 'g'))) value = m[1].trim();
+    return value;
+  };
+  const varOf = (value) => value?.match(/var\(--([a-z-]+)\)/)?.[1];
+  const lum = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const base = varOf(decl(':focus-visible', 'outline'));
+  for (const selected of ['.rail button[aria-current="page"]', '.pane-tabs button[aria-selected="true"]']) {
+    const fill = varOf(decl(selected, 'background'));
+    assert.ok(fill, `${selected} has a background token`);
+    const ring = varOf(decl(`${selected}:focus-visible`, 'outline-color')) ?? varOf(decl(`${selected}:focus-visible`, 'outline')) ?? base;
+    for (const [theme, t] of [['light', light], ['dark', darkPicked]]) {
+      const ratio = contrast(t[ring], t[fill]);
+      assert.ok(ratio >= 3, `${theme}: ${selected} focus ring --${ring} on --${fill} is ${ratio.toFixed(2)}:1`);
+    }
+  }
+});

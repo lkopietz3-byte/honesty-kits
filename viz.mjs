@@ -436,9 +436,10 @@ function interval(v, W, motion) {
   const iv = v.interval;
   const pct = (x, d = 2) => `${(x * 100).toFixed(d)}%`;
   const verdictText = { supported: 'supported', contradicted: 'contradicted', overstated: 'overstated', refused: 'refused' }[v.verdict] ?? v.verdict;
-  const points = [...(v.claimed === null ? [] : [v.claimed]), ...(iv ? [iv.low, iv.high, iv.point] : [])];
+  const census = v.census ?? null;
+  const points = [...(v.claimed === null ? [] : [v.claimed]), ...(iv ? [iv.low, iv.high, iv.point] : []), ...(census ? [census.point] : [])];
   let lo = 0, hi = 1;
-  if (points.length && iv) {
+  if (points.length && (iv || census)) {
     const min = Math.min(...points), max = Math.max(...points);
     const span = Math.max(max - min, 0.002);
     lo = Math.max(0, min - span * 0.4);
@@ -448,17 +449,28 @@ function interval(v, W, motion) {
   const digits = step * 100 >= 1 ? 0 : 1;
   const x = (val) => pad + ((val - lo) / (hi - lo)) * (W - pad * 2);
   const rows = [];
+  // A count such as "990 of 1000" stays on one line when a row wraps.
+  const count = (k, n) => `(${k}\u00a0of\u00a0${n})`;
   if (iv) {
     rows.push({ kind: 'band', text: `${Math.round(iv.confidence * 100)}% interval from the counts: ${pct(iv.low)} to ${pct(iv.high)}` });
-    rows.push({ kind: 'point', text: `Observed: ${pct(iv.point)} (${iv.successes} of ${iv.n})` });
+    rows.push({ kind: 'point', text: `Observed: ${pct(iv.point)} ${count(iv.successes, iv.n)}` });
+  } else if (census) {
+    rows.push({ kind: 'point', text: `Exact count on the whole set: ${pct(census.point)} ${count(census.successes, census.n)}` });
   } else {
     rows.push({ kind: 'none', text: 'No interval: the evidence is incomplete.' });
   }
   if (v.claimed === null) rows.push({ kind: 'none', text: 'The figure is not a proportion, so it cannot be placed on this scale.' });
+  else if (v.from) rows.push({ kind: 'note', text: `The kit judged ${v.display}, read from the printed figure ${v.from}.` });
   if (iv) rows.push({ kind: 'note', text: v.better === 'lower' ? 'A claim below the band goes beyond the counts.' : 'A claim above the band goes beyond the counts.' });
+  else if (census) rows.push({ kind: 'note', text: 'The whole set was checked, so there is no interval. The figure has to match the count.' });
+  // Rows wrap instead of cutting off, so both ends of the interval stay readable on a phone.
+  for (const row of rows) row.lines = wrap(row.text, W - pad * 2 - (row.kind === 'band' || row.kind === 'point' ? 28 : 0), 'label', 4);
+  const LINE = 16;
   const axisY = 58;
-  const H = axisY + 40 + rows.length * 22 + 6;
-  const svg = frame(W, H, `Claimed ${v.display} (${verdictText})${iv ? `, interval ${pct(iv.low)} to ${pct(iv.high)}, observed ${pct(iv.point)}` : ', no interval'}`);
+  const H = axisY + 40 + rows.reduce((h, row) => h + 22 + (row.lines.length - 1) * LINE, 0) + 6;
+  const claimText = v.from ? `${v.display}, judged from ${v.from}` : v.display;
+  const evidenceText = iv ? `, interval ${pct(iv.low)} to ${pct(iv.high)}, observed ${pct(iv.point)}` : census ? `, exact count ${pct(census.point)} (${census.successes} of ${census.n})` : ', no interval';
+  const svg = frame(W, H, `Claimed ${claimText} (${verdictText})${evidenceText}`);
   add(svg, 'rect', { x: pad, y: axisY - 7, width: W - pad * 2, height: 14, class: 'v-track' });
   if (iv) {
     const band = add(svg, 'rect', { x: x(iv.low), y: axisY - 7, width: Math.max(2, x(iv.high) - x(iv.low)), height: 14, class: 'v-bar v-info' });
@@ -467,6 +479,7 @@ function interval(v, W, motion) {
     play(motion, band, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 600 });
     add(svg, 'line', { x1: x(iv.point), y1: axisY - 12, x2: x(iv.point), y2: axisY + 12, class: 'v-ceiling' });
   }
+  if (census) add(svg, 'line', { x1: x(census.point), y1: axisY - 12, x2: x(census.point), y2: axisY + 12, class: 'v-ceiling' });
   for (let t = Math.ceil(lo / step - 1e-9) * step; t <= hi + 1e-9; t += step) {
     add(svg, 'line', { x1: x(t), y1: axisY + 9, x2: x(t), y2: axisY + 14, class: 'v-axis' });
     add(svg, 'text', { x: x(t), y: axisY + 29, 'text-anchor': 'middle', class: 'v-label v-muted' }, `${(t * 100).toFixed(digits)}%`);
@@ -486,8 +499,10 @@ function interval(v, W, motion) {
     if (row.kind === 'band') add(svg, 'rect', { x: pad, y: y - 6, width: 18, height: 10, class: 'v-bar v-info' });
     else if (row.kind === 'point') add(svg, 'line', { x1: pad + 9, y1: y - 8, x2: pad + 9, y2: y + 6, class: 'v-ceiling' });
     const indent = row.kind === 'band' || row.kind === 'point' ? 28 : 0;
-    add(svg, 'text', { x: pad + indent, y, 'dominant-baseline': 'middle', class: row.kind === 'note' ? 'v-label v-muted' : 'v-label' }, fit(row.text, W - pad * 2 - indent, 'label'));
-    y += 22;
+    for (const [i, line] of row.lines.entries()) {
+      add(svg, 'text', { x: pad + indent, y: y + i * LINE, 'dominant-baseline': 'middle', class: row.kind === 'note' ? 'v-label v-muted' : 'v-label' }, line);
+    }
+    y += 22 + (row.lines.length - 1) * LINE;
   }
   return svg;
 }

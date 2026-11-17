@@ -27,11 +27,17 @@ const staleAge = (ageDays, maxAgeDays) =>
  */
 export function formatJson(value, indent = '') {
   const flat = (v) => v === null || typeof v !== 'object';
-  const inline = (v) => JSON.stringify(v).replace(/^\{"/, '{ "').replace(/\}$/, ' }').replace(/,"/g, ', "').replace(/":/g, '": ').replace(/^\[\]$/, '[]');
+  // Spacing is added between serialized pieces only, never inside a string, so the
+  // printed JSON parses back to exactly the value the playground checked.
+  const list = (arr) => `[${arr.map((x) => JSON.stringify(x)).join(', ')}]`;
+  const inline = (v) => {
+    const entries = Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => `${JSON.stringify(k)}: ${Array.isArray(x) ? list(x) : JSON.stringify(x)}`);
+    return entries.length ? `{ ${entries.join(', ')} }` : '{}';
+  };
   const next = `${indent}  `;
   if (flat(value)) return JSON.stringify(value);
   if (Array.isArray(value)) {
-    if (value.every(flat)) return JSON.stringify(value).replace(/,/g, ', ');
+    if (value.every(flat)) return list(value);
     return `[\n${value.map((v) => next + (isFlatObject(v) ? inline(v) : formatJson(v, next))).join(',\n')}\n${indent}]`;
   }
   if (isFlatObject(value) && inline(value).length + indent.length <= 72) return inline(value);
@@ -53,6 +59,13 @@ function strictDate(value, label) {
   return date;
 }
 const isoMidnight = (value) => (value.length === 10 ? `${value}T00:00:00Z` : value);
+
+// parity-kit's two checks share most options, but each refuses the ones only the other
+// takes. Everything else, including a misspelled name, goes to both, so the kit still
+// refuses a typo instead of the playground dropping it.
+const PARITY_MIRROR_ONLY = ['fields', 'numberTolerance'];
+const PARITY_AUDIT_ONLY = ['sourceFields', 'reviewerField', 'expiryField', 'valueFields', 'now', 'bulkThreshold'];
+const parityOptions = (options, drop) => Object.fromEntries(Object.entries(options).filter(([name]) => !drop.includes(name)));
 
 export const GROUPS = [
   'Check what your AI writes',
@@ -336,15 +349,32 @@ if (offenses.length > 0) process.exitCode = 1;
       const KIND = { sum: 'sum', difference: 'difference', ratio: 'ratio', 'percent-change': 'percent change', 'percent-of': 'percent of', average: 'average', product: 'product' };
       const NEAR = { 'unit-differs': 'unit', 'kind-differs': 'kind of number', 'sign-differs': 'sign' };
       const rows = [];
+      // The kit passes some matches with a flag: the answer dropped a sign the evidence
+      // has, or only one side carries the unit. Those are qualified matches, never plain ones.
+      const qualified = (n) => {
+        const notes = [];
+        const fixes = [];
+        if (n.signDiffers) {
+          notes.push('The evidence has it with the opposite sign, so the answer may have dropped a minus sign or parentheses.');
+          fixes.push('Restore the sign the evidence shows');
+        }
+        if (n.unitUnverified) {
+          notes.push('Only one side carries the unit, so the match may be a coincidence between different quantities.');
+          fixes.push('confirm the number means the same thing in both places');
+        }
+        return notes.length ? { mark: 'warn', note: ` ${notes.join(' ')}`, fix: `${fixes.join(', and ')}.`.replace(/^./, (c) => c.toUpperCase()) } : null;
+      };
       for (const n of result.numbers) {
         const title = around(n.token.start, n.token.end);
         const base = { title, highlight: n.token.raw };
         const found = n.evidence[0] ? quote(n.evidence[0].raw) : 'the evidence';
-        if (n.status === 'traced') rows.push({ ...base, mark: 'ok', detail: `In the evidence as ${found}.` });
-        else if (n.status === 'rounded') rows.push({ ...base, mark: 'ok', detail: `Matches ${found} in the evidence, rounded to the digits shown.` });
+        const q = qualified(n);
+        const flag = (mark, detail) => (q ? { ...base, mark: q.mark, detail: `${detail}${q.note}`, fix: q.fix } : { ...base, mark, detail });
+        if (n.status === 'traced') rows.push(flag('ok', `In the evidence as ${found}.`));
+        else if (n.status === 'rounded') rows.push(flag('ok', `Matches ${found} in the evidence, rounded to the digits shown.`));
         else if (n.status === 'derived') {
           const d = n.derivation;
-          rows.push({ ...base, mark: 'info', detail: `Not stated in the evidence. It matches the ${KIND[d.kind] ?? d.kind} of ${d.operands.map((o) => quote(o.raw)).join(' and ')}${d.exact ? '' : ', to the digits shown'}.` });
+          rows.push(flag('info', `Not stated in the evidence. It matches the ${KIND[d.kind] ?? d.kind} of ${d.operands.map((o) => quote(o.raw)).join(' and ')}${d.exact ? '' : ', to the digits shown'}.`));
         } else if (n.status === 'untraced') {
           const near = (n.nearMisses ?? []).map((m) => `The evidence has ${quote(m.evidence.raw)} with a different ${NEAR[m.reason] ?? 'form'}.`).join(' ');
           rows.push({ ...base, mark: 'bad', detail: `Not in the evidence. ${near}`.trim(), fix: 'Remove the number, or give the AI the source that states it.' });
@@ -358,30 +388,39 @@ if (offenses.length > 0) process.exitCode = 1;
         const why = { identifier: 'It looks like a name or code, not a quantity.', 'in-evidence': 'The evidence writes it the same way.', 'unread-glued-form': 'It is glued to letters the kit does not read.', 'not-in-evidence': 'It looks like a code that the evidence does not contain.' }[s.reason];
         rows.push({ mark: holds ? 'warn' : 'skip', title: `${around(s.start, s.end)}`, highlight: s.raw, detail: `Not read as a number. ${why}`, fix: holds ? 'Have a person check this one.' : undefined });
       }
+      // The kit reads an integer amount as minor units (200 is 2.00), so show each row as the
+      // kit read it, from the kit itself, not as typed.
+      const exact = sum && Number(sum.difference) === 0;
       if (sum) {
-        const parts = input.table.rows.map((r) => r.amount).join(' + ');
-        if (sum.ok) rows.push({ mark: 'ok', title: 'The rows add up to the printed total', detail: `${parts} = ${sum.sum}.` });
+        const parts = input.table.rows.map((r) => kit.reconcile({ rows: [r], total: r.amount }).sum).join(' + ');
+        const gap = sum.difference.replace(/^-/, '');
+        const side = sum.difference.startsWith('-') ? 'more' : 'less';
+        if (sum.ok && exact) rows.push({ mark: 'ok', title: 'The rows add up to the printed total', detail: `${parts} = ${sum.sum}.` });
+        else if (sum.ok) rows.push({ mark: 'ok', title: 'The rows match the printed total within the tolerance', detail: `${parts} comes to ${sum.sum}. The total says ${sum.total}, ${gap} ${side}, inside the ${sum.tolerance} tolerance you allowed.` });
         else {
-          const diff = sum.difference.replace(/^-/, '');
-          rows.push({ mark: 'bad', title: 'The rows do not add up to the printed total', detail: `The rows sum to ${sum.sum}, but the total says ${sum.total}, which is ${diff} ${sum.difference.startsWith('-') ? 'more' : 'less'}.`, fix: 'Correct the total or the row that is wrong.' });
+          const allowed = Number(sum.tolerance) === 0 ? '' : ` That is outside the ${sum.tolerance} tolerance you allowed.`;
+          rows.push({ mark: 'bad', title: 'The rows do not add up to the printed total', detail: `The rows (${parts}) sum to ${sum.sum}, but the total says ${sum.total}, which is ${gap} ${side}.${allowed}`, fix: 'Correct the total or the row that is wrong.' });
         }
       }
       const { counts } = result;
       const found = result.numbers.length;
+      const flagged = result.numbers.filter((n) => n.signDiffers || n.unitUnverified).length;
       if (!found) rows.unshift({ mark: 'info', title: 'No numbers to check', detail: 'The answer has no digits the kit reads. Numbers written as words are not read.' });
       const bits = [];
       if (counts.untraced) bits.push(`${counts.untraced} of ${plural(found, 'number')} not found in the evidence`);
       if (sum && !sum.ok) bits.push('the rows do not add up to the printed total');
-      const tone = bits.length ? 'fail' : result.verdict === 'unknown' ? 'warn' : found ? 'pass' : 'info';
+      const tone = bits.length ? 'fail' : result.verdict === 'unknown' || flagged ? 'warn' : found ? 'pass' : 'info';
       const headline = bits.length
         ? `${bits.join(', and ')}.`.replace(/^./, (c) => c.toUpperCase())
-        : tone === 'warn' ? 'Some numbers could not be read or decided, so a person should look.'
-        : found ? `All ${plural(found, 'number')} ${counts.derived ? 'are stated in the evidence or built from it' : 'trace to the evidence'}${sum ? ', and the rows add up' : ''}.`
+        : result.verdict === 'unknown' ? 'Some numbers could not be read or decided, so a person should look.'
+        : flagged ? `${plural(flagged, 'number')} ${flagged === 1 ? 'matches' : 'match'} the evidence only with a different sign or a unit on one side, so a person should look.`
+        : found ? `All ${plural(found, 'number')} ${counts.derived ? 'are stated in the evidence or built from it' : 'trace to the evidence'}${sum ? (exact ? ', and the rows add up' : ', and the rows match the printed total within the tolerance') : ''}.`
         : 'No numbers found in the answer.';
+      const extra = [counts.signDiffers ? `${counts.signDiffers} with a different sign` : '', counts.unitUnverified ? `${counts.unitUnverified} with a unit on one side only` : ''].filter(Boolean);
       return {
         tone,
         headline,
-        summary: `${counts.traced} traced, ${counts.rounded} rounded, ${counts.derived} derived, ${counts.untraced} untraced, ${counts.unknown} unknown.`,
+        summary: `${counts.traced} traced, ${counts.rounded} rounded, ${counts.derived} derived, ${counts.untraced} untraced, ${counts.unknown} unknown${extra.length ? ` (${extra.join(', ')})` : ''}.`,
         rows,
         raw: { trace: result, reconcile: sum },
       };
@@ -392,14 +431,19 @@ const evidence = ${js(input.evidence)};
 const output = ${js(input.output)};
 
 const result = traceNumbers(output, evidence, { preset: ${js(input.mode === 'report' ? 'report' : 'strict')} });
-for (const n of result.numbers) console.log(n.token.raw.padEnd(14), n.status);
+for (const n of result.numbers) {
+  const flags = [n.signDiffers && 'sign differs from the evidence', n.unitUnverified && 'unit on one side only'].filter(Boolean);
+  console.log(n.token.raw.padEnd(14), n.status, flags.length ? \`(\${flags.join(', ')})\` : '');
+}
 console.log(\`verdict: \${result.verdict}\`);
+// A match with a dropped sign or a unit on one side still counts as traced; treat it as a problem.
+const qualified = result.counts.signDiffers + result.counts.unitUnverified;
 ${input.table == null ? '' : `
 const sum = reconcile(${js(input.table)});
-console.log(sum.ok ? 'rows add up' : \`rows sum to \${sum.sum}, total says \${sum.total}\`);
+console.log(!sum.ok ? \`rows sum to \${sum.sum}, total says \${sum.total}\` : Number(sum.difference) === 0 ? 'rows add up' : \`rows sum to \${sum.sum}, within the \${sum.tolerance} tolerance of \${sum.total}\`);
 `}
-// Fail the build when a number is missing from the evidence${input.table == null ? '' : ' or the rows do not add up'}.
-if (result.verdict !== 'clean'${input.table == null ? '' : ' || !sum.ok'}) process.exitCode = 1;
+// Fail the build when a number is missing from the evidence or matches it only with a different sign or unit${input.table == null ? '' : ', or the rows do not add up'}.
+if (result.verdict !== 'clean' || qualified > 0${input.table == null ? '' : ' || !sum.ok'}) process.exitCode = 1;
 `,
   },
 
@@ -683,14 +727,27 @@ if (stale > 0) process.exitCode = 1;
       },
     ],
     run(kit, input) {
-      const r = kit.assessAccuracyClaim({ claim: input.claim, ...input.evidence });
-      const display = String(input.claim.display);
+      // The claim field is the figure being judged. A claim inside the evidence would
+      // quietly replace it, so it is refused rather than merged.
+      if (input.evidence && typeof input.evidence === 'object' && Object.hasOwn(input.evidence, 'claim')) {
+        throw new TypeError('Put the figure in the claim field, not inside the evidence. The evidence holds the counts, who labeled and how items were picked.');
+      }
+      const r = kit.assessAccuracyClaim({ ...input.evidence, claim: input.claim });
       const pct = (x) => `${(x * 100).toFixed(2)}%`;
-      const OK = new Set(['claim-within-bound', 'matches-observed-rate']);
+      const asPercent = (x) => `${Number((x * 100).toFixed(4))}%`;
+      // display is optional; without it the figure is the value, written as a percent.
+      const display = typeof input.claim.display === 'string' ? input.claim.display : asPercent(r.claimed);
+      // The kit judges the more favorable of the value and the printed figure (the top of
+      // "98-99.8%", for example). The graphic marks that figure and says where it came from.
+      const judged = Number.isFinite(r.assessedValue) ? r.assessedValue : r.claimed;
+      const judgedElsewhere = typeof input.claim.display === 'string' && judged !== r.claimed;
+      const OK = new Set(['claim-within-bound', 'matches-observed-rate', 'census-matches-count']);
       const NOTE = new Set(['precision-too-fine', 'claim-worse-than-counts', 'strata-not-reweighted']);
       const TITLES = {
         'claim-within-bound': 'The figure is within what the counts support',
         'matches-observed-rate': 'The figure is the rate the counts show',
+        'census-matches-count': 'The figure matches the exact count',
+        'claim-differs-from-count': 'The figure does not match the exact count',
         'claim-outside-interval': 'The figure goes past what the counts allow',
         'claim-beyond-conservative-bound': 'The figure is more than the counts carry',
         'precision-too-fine': 'The figure has more digits than the counts support',
@@ -714,6 +771,7 @@ if (stale > 0) process.exitCode = 1;
       const FIXES = {
         'claim-outside-interval': 'Publish the suggested statement below instead, or check more items.',
         'claim-beyond-conservative-bound': 'Publish the suggested statement below instead, or check more items.',
+        'claim-differs-from-count': 'Print the figure the count gives, or check whether the count is stale or mistyped.',
         'precision-too-fine': 'Print fewer digits.',
         'claim-worse-than-counts': 'Check whether the printed figure is stale or mistyped.',
         'strata-not-reweighted': 'Report each group separately if they were sampled at different rates.',
@@ -734,7 +792,7 @@ if (stale > 0) process.exitCode = 1;
       const count = Math.max(r.reasons.length, r.explanation.length);
       for (let i = 0; i < count; i += 1) {
         const code = r.reasons[i];
-        const mark = OK.has(code) ? 'ok' : NOTE.has(code) ? 'info' : r.verdict === 'contradicted' && code === 'claim-outside-interval' ? 'bad' : 'warn';
+        const mark = OK.has(code) ? 'ok' : NOTE.has(code) ? 'info' : r.verdict === 'contradicted' && (code === 'claim-outside-interval' || code === 'claim-differs-from-count') ? 'bad' : 'warn';
         rows.push({
           mark,
           title: TITLES[code] ?? (code ? `${code.charAt(0).toUpperCase()}${code.slice(1).replace(/-/g, ' ')}` : 'Note'),
@@ -752,18 +810,31 @@ if (stale > 0) process.exitCode = 1;
       }[r.verdict] ?? `Verdict: ${r.verdict}.`;
       const interval = r.interval;
       const LOWER = new Set(['error-rate', 'false-positive-rate', 'false-negative-rate']);
+      // A complete set (a benchmark or a fixed split) is judged against its exact count, with
+      // no interval. The count is the one the kit compared: right answers for a higher-is-better
+      // metric, errors for an error rate.
+      let census = null;
+      if (r.basis === 'census') {
+        const s = input.evidence.sample;
+        const correct = s.correct ?? r.n - s.errors;
+        const successes = LOWER.has(r.metric) ? r.n - correct : correct;
+        census = { point: successes / r.n, successes, n: r.n };
+      }
       return {
         tone,
         headline,
         summary: interval
           ? `${Math.round(interval.confidence * 100)}% interval from the counts: ${pct(interval.low)} to ${pct(interval.high)}. Observed ${pct(interval.point)} (${interval.successes} of ${interval.n}).`
+          : census ? `Exact count on the whole set: ${census.successes} of ${census.n} (${pct(census.point)}). The whole set was checked, so there is no interval.`
           : 'No interval: the evidence has to be complete before the kit will judge a figure.',
         rows,
         viz: {
           type: 'interval',
           better: LOWER.has(r.metric) ? 'lower' : 'higher',
-          claimed: Number.isFinite(r.claimed) && r.claimed >= 0 && r.claimed <= 1 ? r.claimed : null,
-          display,
+          claimed: Number.isFinite(judged) && judged >= 0 && judged <= 1 ? judged : null,
+          display: judgedElsewhere ? asPercent(judged) : display,
+          ...(judgedElsewhere ? { from: display } : {}),
+          ...(census ? { census } : {}),
           verdict: r.verdict,
           mark: { supported: 'ok', contradicted: 'bad', overstated: 'warn', refused: 'warn' }[r.verdict] ?? 'info',
           interval: interval ? { low: interval.low, high: interval.high, point: interval.point, confidence: interval.confidence, successes: interval.successes, n: interval.n } : null,
@@ -776,7 +847,7 @@ if (stale > 0) process.exitCode = 1;
 const claim = ${js(input.claim)};
 const evidence = ${js(input.evidence)};
 
-const result = assessAccuracyClaim({ claim, ...evidence });
+const result = assessAccuracyClaim({ ...evidence, claim }); // the claim above is the one judged
 console.log(result.verdict, result.reasons.join(', '));
 for (const line of result.explanation) console.log(' -', line);
 console.log('Say this instead:', result.suggestedStatement);
@@ -862,17 +933,24 @@ if (result.verdict !== 'supported') process.exitCode = 1;
       },
     ],
     run(kit, input) {
-      const { sourceFields: _sourceFields, ...shared } = input.options;
-      const mirror = kit.compareMirror(input.source, input.copy, shared);
+      const mirror = kit.compareMirror(input.source, input.copy, parityOptions(input.options, PARITY_AUDIT_ONLY));
       const skipDates = Array.isArray(input.earlier) && input.earlier.length === 0;
-      const audit = skipDates ? null : kit.auditReviewStamps(input.earlier, input.source, input.options);
+      const audit = skipDates ? null : kit.auditReviewStamps(input.earlier, input.source, parityOptions(input.options, PARITY_MIRROR_ONLY));
       const val = (v) => (v === undefined ? 'no value' : JSON.stringify(v));
       const SIDE = { canonical: 'source', mirror: 'copy', before: 'earlier snapshot', after: 'source' };
       const rows = [];
       const named = new Set();
       const WHY = { missing: 'is missing', 'not-a-string': 'is not text', 'zoneless-timestamp': 'has a time but no zone', 'unparseable-date': 'is not a date the kit can read', 'expiry-removed': 'was removed' };
+      // A repeated id makes the kit flag the check, so it is a problem row, listed once even
+      // when both checks see it in the source.
+      const dupes = new Set();
       const problemRows = (report) => {
-        for (const d of report.duplicateKeys) rows.push({ mark: 'warn', title: `${d.id} appears more than once in the ${SIDE[d.side] ?? d.side}`, detail: `Positions ${d.positions.join(', ')}. The kit cannot tell which record is right.`, fix: 'Keep one record per id.' });
+        for (const d of report.duplicateKeys) {
+          const where = SIDE[d.side] ?? d.side;
+          if (dupes.has(`${where}|${d.id}`)) continue;
+          dupes.add(`${where}|${d.id}`);
+          rows.push({ mark: 'bad', title: `${d.id} appears more than once in the ${where}`, detail: `Positions ${d.positions.join(', ')}. The kit cannot tell which record is right.`, fix: 'Keep one record per id.' });
+        }
         for (const g of report.suspectKeys) rows.push({ mark: 'warn', title: `Look-alike ids: ${g.keys.map((k) => k.key).join(' and ')}`, detail: 'They differ only in case, spacing or look-alike characters, so they may be one record.', fix: 'Pick one spelling and use it everywhere.' });
         for (const i of report.invalid) rows.push({ mark: 'warn', title: `A record in the ${SIDE[i.side] ?? i.side} could not be read`, detail: i.detail ?? i.reason, fix: 'Fix the record so the kit can read it.' });
         for (const name of report.unknownFields.filter((n) => !named.has(n))) {
@@ -908,12 +986,23 @@ if (result.verdict !== 'supported') process.exitCode = 1;
       }
       const flagged = mirror.status === 'flagged' || audit?.status === 'flagged';
       const unknown = mirror.status === 'unknown' || audit?.status === 'unknown';
+      // The headline names each finding the kit flagged, not just that it flagged something.
       const parts = [];
-      if (mirror.status === 'flagged') parts.push(`The copy has drifted from its source in ${plural(mirror.missing.length + mirror.extra.length + mirror.changed.length, 'place')}`);
-      if (audit?.status === 'flagged') parts.push(`${parts.length ? 'r' : 'R'}eview dates moved with nothing in the data to show a recheck`);
+      const drift = mirror.missing.length + mirror.extra.length + mirror.changed.length;
+      if (drift) parts.push(`the copy has drifted from its source in ${plural(drift, 'place')}`);
+      if (dupes.size) parts.push(`${plural(dupes.size, 'id')} ${dupes.size === 1 ? 'appears' : 'appear'} more than once`);
+      if (audit) {
+        const n = (list, one, rest) => `${plural(list.length, one)}${rest}`;
+        if (audit.stampOnly.length) parts.push('review dates moved with nothing in the data to show a recheck');
+        else if (audit.bulkBump.length) parts.push(`${plural(audit.bulkBump.reduce((t, b) => t + b.count, 0), 'record')} moved to one review date at once`);
+        if (audit.backward.length) parts.push(n(audit.backward, 'review date', ' moved earlier'));
+        if (audit.future.length) parts.push(n(audit.future, 'review date', audit.future.length === 1 ? ' is in the future' : ' are in the future'));
+        if (audit.extendedDeadlines.length) parts.push(n(audit.extendedDeadlines, 'deadline', ' pushed later with no change to the source'));
+      }
+      if (flagged && !parts.length) parts.push('the kit flagged a problem, listed below');
       return {
         tone: flagged ? 'fail' : unknown ? 'warn' : 'pass',
-        headline: flagged ? `${parts.join(', and ')}.`
+        headline: flagged ? `${parts.join(', and ')}.`.replace(/^./, (c) => c.toUpperCase())
           : unknown ? 'Something could not be checked, so this is not a pass.'
           : `The copy matches its source${audit ? ' and the review dates moved for a reason' : ''}.`,
         summary: `${plural(mirror.compared, 'record')} compared with the source${audit ? `, ${audit.compared} with the earlier snapshot` : ''}.`,
@@ -928,14 +1017,17 @@ if (result.verdict !== 'supported') process.exitCode = 1;
 const source = ${js(input.source)};
 const copy = ${js(input.copy)};
 const options = ${js(input.options)};
-const { sourceFields, ...shared } = options; // the copy check takes only the shared options
+// Each check refuses an option it does not take, so send each one only the options it accepts.
+const auditOnly = ${js(PARITY_AUDIT_ONLY)};
+const mirrorOnly = ${js(PARITY_MIRROR_ONLY)};
+const without = (names) => Object.fromEntries(Object.entries(options).filter(([name]) => !names.includes(name)));
 
-const mirror = compareMirror(source, copy, shared);
+const mirror = compareMirror(source, copy, without(auditOnly));
 console.log('copy against source:', mirror.status);
 for (const c of mirror.changed) console.log(\`  \${c.id}.\${c.field}: source \${JSON.stringify(c.canonical)}, copy \${JSON.stringify(c.mirror)}\`);
 ${skip ? '' : `
 const earlier = ${js(input.earlier)};
-const audit = auditReviewStamps(earlier, source, options);
+const audit = auditReviewStamps(earlier, source, without(mirrorOnly));
 console.log('review dates:', audit.status);
 for (const s of audit.stampOnly) console.log(\`  \${s.id}: \${s.from} to \${s.to}, nothing else changed\`);
 `}

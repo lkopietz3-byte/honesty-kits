@@ -38,14 +38,22 @@ function mcpFacts() {
   const toolFiles = [...server.matchAll(/from "\.\/tools\/([A-Za-z]+)\.js"/g)].map((m) => m[1]);
   const tools = new Set();
   const kitsInSource = new Set();
+  // A tool file that returns before registering anything while code execution is off
+  // adds its kit only with the switch on; every other file's kits are in the default list.
+  const kitsByDefault = new Set();
   for (const file of toolFiles) {
     const src = readFileSync(path.join(MCP_DIR, `src/tools/${file}.ts`), 'utf8');
+    const gated = /if\s*\(\s*!isCodeExecEnabled\(\)\s*\)\s*return\s*;/.test(src);
     for (const m of src.matchAll(/registerTool\(\s*"([a-z_]+)"/g)) tools.add(m[1]);
-    for (const id of KIT_IDS) if (new RegExp(`["']${id}["']`).test(src)) kitsInSource.add(id);
+    for (const id of KIT_IDS) {
+      if (!new RegExp(`["']${id}["']`).test(src)) continue;
+      kitsInSource.add(id);
+      if (!gated) kitsByDefault.add(id);
+    }
   }
   const deps = Object.keys(JSON.parse(readFileSync(path.join(MCP_DIR, 'package.json'), 'utf8')).dependencies ?? {});
   const kitsInDeps = KIT_IDS.filter((id) => deps.includes(id));
-  return { tools: [...tools], kitsInSource: [...kitsInSource].sort(), kitsInDeps: kitsInDeps.sort() };
+  return { tools: [...tools], kitsInSource: [...kitsInSource].sort(), kitsInDeps: kitsInDeps.sort(), kitsByDefault: [...kitsByDefault].sort() };
 }
 
 // ------------------------------------------------------------------ text surfaces
@@ -101,6 +109,8 @@ const NUM = '(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelv
 const PRONOUN = new RegExp(`\\b${NUM}\\s+of\\s+(?:them|those|these)\\b`, 'gi');
 const OTHER_TWO = new RegExp(`\\bthe other ${NUM}\\s*\\(`, 'gi');
 const MODULES = new RegExp(`\\b${NUM}\\s+ES modules\\b`, 'gi');
+// "Its tools cover ten kits by default and eleven with its code-execution switch on."
+const SWITCH_ON = new RegExp(`\\b${NUM}\\s+with its code-execution switch on\\b`, 'gi');
 const SPELLED = /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/gi;
 
 function countClaims(text) {
@@ -115,6 +125,7 @@ function countClaims(text) {
   }
   for (const m of text.matchAll(OTHER_TWO)) claims.push({ phrase: m[0], kind: 'mcp-scaffold', n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
   for (const m of text.matchAll(MODULES)) claims.push({ phrase: m[0], kind: 'modules', n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
+  for (const m of text.matchAll(SWITCH_ON)) claims.push({ phrase: m[0], kind: 'mcp-wrapped', n: toNumber(m[1]), at: m.index, end: m.index + m[0].length });
   for (const m of text.matchAll(COUNT)) {
     const before = text.slice(Math.max(0, m.index - 40), m.index).toLowerCase();
     const noun = m[4].toLowerCase();
@@ -123,6 +134,9 @@ function countClaims(text) {
       // "has tools for eleven of the 12 kits": the first number is how many kits honesty-mcp covers.
       claims.push({ phrase: m[0], kind: noun === 'kits' && /(?:wraps|tools for)\s*$/.test(before) ? 'mcp-wrapped' : 'unplaced', n, at: m.index, end: m.index + m[0].length });
       if (m[3]) claims.push({ phrase: m[0], kind: noun === 'kits' ? 'kits' : 'unplaced', n: Number(m[3]), at: m.index, end: m.index + m[0].length });
+    } else if (noun === 'kits' && /tools cover\s*$/.test(before) && /^\s+by default\b/.test(text.slice(m.index + m[0].length))) {
+      // "Its tools cover ten kits by default": the kits honesty-mcp lists with code execution off.
+      claims.push({ phrase: `${m[0]} by default`, kind: 'mcp-default', n, at: m.index, end: m.index + m[0].length });
     } else {
       claims.push({ phrase: m[0], kind: { kits: 'kits', examples: 'examples', presets: 'examples', packages: 'packages', tools: 'mcp-tools' }[noun], n, at: m.index, end: m.index + m[0].length });
     }
@@ -142,6 +156,7 @@ function expectedCount(kind) {
   if (!MCP_DIR) return undefined; // cannot be checked without the honesty-mcp source
   const facts = mcpFacts();
   if (kind === 'mcp-wrapped') return facts.kitsInDeps.length;
+  if (kind === 'mcp-default') return facts.kitsByDefault.length;
   if (kind === 'mcp-tools') return facts.tools.length;
   const scaffolds = facts.tools.filter((t) => t.startsWith('scaffold_')).length;
   if (kind === 'mcp-scaffold') return scaffolds;
@@ -196,8 +211,14 @@ test('honesty-mcp: the "tools for N of the kits" numbers match its source', { sk
     for (const c of countClaims(text).filter((x) => x.kind === 'mcp-wrapped')) assert.equal(c.n, wrapped, `${name}: "${c.phrase}"`);
   }
   // At least the README and the page dialog actually state it, so this cannot pass by saying nothing.
+  // Code execution is off by default and one kit's tool exists only with it on, so both
+  // also state the smaller default number.
+  assert.ok(facts.kitsByDefault.length > 0 && facts.kitsByDefault.length < wrapped, 'the code-execution switch adds at least one kit');
   for (const [name, text] of SURFACES.filter(([n]) => ['README.md', 'src/page.html'].includes(n))) {
     assert.ok(countClaims(text).some((x) => x.kind === 'mcp-wrapped'), `${name} states how many kits honesty-mcp wraps`);
+    const defaults = countClaims(text).filter((x) => x.kind === 'mcp-default');
+    assert.ok(defaults.length > 0, `${name} states how many kits the default tool list covers`);
+    for (const c of defaults) assert.equal(c.n, facts.kitsByDefault.length, `${name}: "${c.phrase}"`);
   }
   const notWrapped = KIT_IDS.filter((id) => !facts.kitsInDeps.includes(id));
   assert.equal(notWrapped.length, KITS.length - wrapped);

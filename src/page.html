@@ -100,6 +100,8 @@ a { color: var(--accent); }
 /* The rail, the example row, the tabs, the result and the form clip or scroll, so an outside focus ring would be clipped at their edges. Draw it inside. */
 .rail button:focus-visible, .chip:focus-visible, .pane-tabs button:focus-visible, details.raw summary:focus-visible, .field textarea:focus-visible, .field input[type="text"]:focus-visible { outline-offset: -2px; }
 .rail button[aria-current="page"] { background: var(--ink); color: var(--sheet); }
+/* A selected rail button or tab is filled with --ink, which --accent does not reach 3:1 against. Its inset ring takes the control's text color instead. */
+.rail button[aria-current="page"]:focus-visible, .pane-tabs button[aria-selected="true"]:focus-visible { outline-color: var(--sheet); }
 .rail .kit-name { font-weight: 600; font-size: var(--step--1); }
 .rail .kit-pkg { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted); }
 .rail button[aria-current="page"] .kit-pkg { color: inherit; opacity: 0.75; }
@@ -442,7 +444,7 @@ dialog::backdrop { background: rgb(8 14 18 / 0.55); }
 <dialog id="agent-dialog" aria-labelledby="agent-title">
   <div class="dialog-inner">
     <h2 id="agent-title">Use these checks from your AI coding agent</h2>
-    <p><strong>honesty-mcp</strong> has tools for eleven of the 15 kits, for Claude Code, Cursor, VS Code and other MCP clients (two of them hand you starter code instead of running a check). The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet. It runs on your machine with npx, and the kits make no network calls.</p>
+    <p><strong>honesty-mcp</strong> works with Claude Code, Cursor, VS Code and other MCP clients. Its tools cover ten kits by default and eleven with its code-execution switch on (two of them hand you starter code instead of running a check). The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet. It runs on your machine with npx, and the kits make no network calls.</p>
     <div class="install-buttons">
       <a class="btn btn-ink" id="add-cursor" href="#">Add to Cursor</a>
       <a class="btn" id="add-vscode" href="#" target="_blank" rel="noopener">Add to VS Code</a>

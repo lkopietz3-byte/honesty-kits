@@ -53,7 +53,7 @@ There are 15 kits, each its own npm package, MIT licensed, with zero runtime dep
 
 ## Use them from your AI coding agent
 
-[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) has tools for eleven of the 15 kits, for Claude Code, Cursor, VS Code and any other MCP client. Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx. The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet.
+[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) works with Claude Code, Cursor, VS Code and any other MCP client. Its tools cover ten kits by default and eleven with its code-execution switch on (the switch adds the mutation-invariance-kit tool, which runs code you pass it). Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx. The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet.
 
 ```bash
 claude mcp add honesty-mcp -- npx -y honesty-mcp

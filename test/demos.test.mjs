@@ -142,3 +142,74 @@ test('every example survives a shared link round trip, and bad links are refused
   const md = reportMarkdown(grounding, { headline: 'h', rows: [] }, 'https://example.test/#grounding-kit~abc');
   assert.ok(md.endsWith('[Open this example in the playground](https://example.test/#grounding-kit~abc)'));
 });
+
+// The snippet must run exactly what the playground ran, for inputs beyond the presets too.
+function runSnippet(kit, input) {
+  const dir = new URL('./.snippets-extra/', import.meta.url);
+  mkdirSync(dir, { recursive: true });
+  const file = new URL(`${kit.id}-${Math.random().toString(36).slice(2)}.mjs`, dir);
+  try {
+    writeFileSync(file, kit.snippet(structuredClone(input)));
+    return spawnSync(process.execPath, [file.pathname], { encoding: 'utf8' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const kitOf = (id) => KITS.find((k) => k.id === id);
+
+test('K1 formatJson never rewrites the contents of a string', () => {
+  const tricky = ['Hardware, Tools', 'Hardware,Tools', 'a,"b', 'x":y', '{"k":1}', ',', '[1,2]'];
+  const values = [
+    tricky,
+    { tags: tricky },
+    Object.fromEntries(tricky.map((s, i) => [`k${i}`, s])),
+    [{ id: 'a', note: 'x":y', list: ['a,b'] }],
+    { long: { name: 'Hardware and tools aisle', aisles: ['Hardware,Tools'], source: 'https://example.test/store-map' } },
+  ];
+  for (const value of values) assert.deepEqual(JSON.parse(formatJson(value)), value, formatJson(value));
+});
+
+test('K1 parity: the snippet compares the same strings the playground compared', async () => {
+  const kit = kitOf('parity-kit');
+  const input = {
+    source: [{ id: 'tools', name: 'Hardware and tools aisle', aisles: ['Hardware, Tools'], source: 'https://example.test/store-map' }],
+    copy: { tools: { name: 'Hardware and tools aisle', aisles: ['Hardware,Tools'], source: 'https://example.test/store-map' } },
+    earlier: [],
+    options: { sourceFields: ['source'] },
+  };
+  const result = await kit.run(await import('parity-kit'), structuredClone(input));
+  assert.equal(result.tone, 'fail');
+  const run = runSnippet(kit, input);
+  assert.equal(run.status, 1, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
+});
+
+test('K2 accuracy: the snippet judges the claim field, not a claim tucked into the evidence', () => {
+  const run = runSnippet(kitOf('accuracy-claim-kit'), {
+    claim: { metric: 'accuracy', value: 0.999, display: '99.9%' },
+    evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random', claim: { metric: 'accuracy', value: 0.98, display: '98%' } },
+  });
+  assert.equal(run.status, 1, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
+});
+
+test('K3 numbers: the snippet reports a dropped sign or a unit on one side, and fails on it like the playground', async () => {
+  const kit = kitOf('number-trace-kit');
+  for (const [input, flag] of [
+    [{ evidence: 'The balance is -$50.', output: 'The balance is $50.', table: null, mode: 'strict' }, /sign/],
+    [{ evidence: 'Growth was 50.', output: 'Growth was 50%.', table: null, mode: 'report' }, /unit/],
+  ]) {
+    const result = await kit.run(await import('number-trace-kit'), structuredClone(input));
+    assert.notEqual(result.tone, 'pass');
+    const run = runSnippet(kit, input);
+    assert.equal(run.status, 1, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
+    assert.match(run.stdout, flag);
+  }
+});
+
+test('K4 parity: the snippet sends each option only to the check that accepts it', () => {
+  const kit = kitOf('parity-kit');
+  const input = structuredClone(kit.presets[1].input);
+  input.options = { ...input.options, now: '2026-11-01T00:00:00Z', numberTolerance: 0 };
+  const run = runSnippet(kit, input);
+  assert.equal(run.status, 1, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
+  assert.doesNotMatch(run.stderr, /unknown option/);
+});
