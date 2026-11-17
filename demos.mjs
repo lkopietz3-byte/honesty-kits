@@ -264,6 +264,145 @@ if (offenses.length > 0) process.exitCode = 1;
 `,
   },
 
+  // ------------------------------------------------------------ number-trace
+  {
+    id: 'number-trace-kit',
+    version: '0.1.0',
+    group: GROUPS[0],
+    name: 'Numbers',
+    question: 'Does every number in an AI answer appear in the evidence it was given?',
+    limit: 'Checks that a number is present in the evidence, not that it is true or sits in the right sentence. Numbers written as words are not read.',
+    fields: [
+      { key: 'evidence', label: 'Evidence the AI was given', kind: 'text', rows: 4 },
+      { key: 'output', label: 'What the AI wrote', kind: 'text', rows: 4 },
+      { key: 'table', label: 'Rows that should add up to a printed total (null skips this)', kind: 'json', rows: 9 },
+      { key: 'mode', label: 'Matching (report also allows sums, differences and percent changes)', kind: 'choice', options: ['strict', 'report'] },
+    ],
+    presets: [
+      {
+        label: 'An invented number',
+        input: {
+          evidence: 'Subtotal $1,200.00. Tax (8.25%) $99.00. Total due $1,299.00.',
+          output: 'Total due is $1,299.00, including 8.3% tax. Payment is due in 45 days.',
+          table: { rows: [{ label: 'Subtotal', amount: '1200.00' }, { label: 'Tax', amount: '99.00' }], total: '1299.00' },
+          mode: 'strict',
+        },
+      },
+      {
+        label: 'Numbers that trace',
+        input: {
+          evidence: 'Subtotal $1,200.00. Tax (8.25%) $99.00. Total due $1,299.00.',
+          output: 'Total due is $1,299.00, including 8.3% tax.',
+          table: { rows: [{ label: 'Subtotal', amount: '1200.00' }, { label: 'Tax', amount: '99.00' }], total: '1299.00' },
+          mode: 'strict',
+        },
+      },
+      {
+        label: 'A figure built from two others',
+        input: {
+          evidence: 'Last quarter the total was $1,000.00. This quarter the total is $1,299.00.',
+          output: 'The total is $1,299.00, up 30% from last quarter.',
+          table: null,
+          mode: 'report',
+        },
+      },
+      {
+        label: 'Rows that do not add up',
+        input: {
+          evidence: 'Subtotal $1,200.00. Tax $99.00. Total due $1,299.01.',
+          output: 'Total due is $1,299.01, the subtotal plus tax.',
+          table: { rows: [{ label: 'Subtotal', amount: '1200.00' }, { label: 'Tax', amount: '99.00' }], total: '1299.01' },
+          mode: 'strict',
+        },
+      },
+    ],
+    run(kit, input) {
+      const evidence = String(input.evidence);
+      const output = String(input.output);
+      const mode = input.mode === 'report' ? 'report' : 'strict';
+      const result = kit.traceNumbers(output, evidence, { preset: mode });
+      const sum = input.table == null ? null : kit.reconcile(input.table);
+      const quote = (raw) => `“${raw}”`;
+      // A few words around the number, cut at word edges, so each row says which one it means.
+      const around = (start, end) => {
+        let from = Math.max(0, start - 26);
+        let to = Math.min(output.length, end + 14);
+        const forward = output.indexOf(' ', from);
+        if (from > 0 && forward !== -1 && forward < start) from = forward + 1;
+        const back = output.lastIndexOf(' ', to);
+        if (to < output.length && back > end) to = back;
+        return `${from > 0 ? '…' : ''}${output.slice(from, to).replace(/\s+/g, ' ').trim()}${to < output.length ? '…' : ''}`;
+      };
+      const KIND = { sum: 'sum', difference: 'difference', ratio: 'ratio', 'percent-change': 'percent change', 'percent-of': 'percent of', average: 'average', product: 'product' };
+      const NEAR = { 'unit-differs': 'unit', 'kind-differs': 'kind of number', 'sign-differs': 'sign' };
+      const rows = [];
+      for (const n of result.numbers) {
+        const title = around(n.token.start, n.token.end);
+        const base = { title, highlight: n.token.raw };
+        const found = n.evidence[0] ? quote(n.evidence[0].raw) : 'the evidence';
+        if (n.status === 'traced') rows.push({ ...base, mark: 'ok', detail: `In the evidence as ${found}.` });
+        else if (n.status === 'rounded') rows.push({ ...base, mark: 'ok', detail: `Matches ${found} in the evidence, rounded to the digits shown.` });
+        else if (n.status === 'derived') {
+          const d = n.derivation;
+          rows.push({ ...base, mark: 'info', detail: `Not stated in the evidence. It matches the ${KIND[d.kind] ?? d.kind} of ${d.operands.map((o) => quote(o.raw)).join(' and ')}${d.exact ? '' : ', to the digits shown'}.` });
+        } else if (n.status === 'untraced') {
+          const near = (n.nearMisses ?? []).map((m) => `The evidence has ${quote(m.evidence.raw)} with a different ${NEAR[m.reason] ?? 'form'}.`).join(' ');
+          rows.push({ ...base, mark: 'bad', detail: `Not in the evidence. ${near}`.trim(), fix: 'Remove the number, or give the AI the source that states it.' });
+        } else if (n.status === 'unknown') {
+          rows.push({ ...base, mark: 'warn', detail: `The kit could not decide${n.reason ? `: ${n.reason.replace(/-/g, ' ')}` : ''}.`, fix: 'Have a person check this number against its source.' });
+        }
+      }
+      for (const s of result.skipped) {
+        if (s.reason === 'ignored') continue;
+        const holds = s.reason === 'unread-glued-form' || s.reason === 'not-in-evidence';
+        const why = { identifier: 'It looks like a name or code, not a quantity.', 'in-evidence': 'The evidence writes it the same way.', 'unread-glued-form': 'It is glued to letters the kit does not read.', 'not-in-evidence': 'It looks like a code that the evidence does not contain.' }[s.reason];
+        rows.push({ mark: holds ? 'warn' : 'skip', title: `${around(s.start, s.end)}`, highlight: s.raw, detail: `Not read as a number. ${why}`, fix: holds ? 'Have a person check this one.' : undefined });
+      }
+      if (sum) {
+        const parts = input.table.rows.map((r) => r.amount).join(' + ');
+        if (sum.ok) rows.push({ mark: 'ok', title: 'The rows add up to the printed total', detail: `${parts} = ${sum.sum}.` });
+        else {
+          const diff = sum.difference.replace(/^-/, '');
+          rows.push({ mark: 'bad', title: 'The rows do not add up to the printed total', detail: `The rows sum to ${sum.sum}, but the total says ${sum.total}, which is ${diff} ${sum.difference.startsWith('-') ? 'more' : 'less'}.`, fix: 'Correct the total or the row that is wrong.' });
+        }
+      }
+      const { counts } = result;
+      const found = result.numbers.length;
+      if (!found) rows.unshift({ mark: 'info', title: 'No numbers to check', detail: 'The answer has no digits the kit reads. Numbers written as words are not read.' });
+      const bits = [];
+      if (counts.untraced) bits.push(`${counts.untraced} of ${plural(found, 'number')} not found in the evidence`);
+      if (sum && !sum.ok) bits.push('the rows do not add up to the printed total');
+      const tone = bits.length ? 'fail' : result.verdict === 'unknown' ? 'warn' : found ? 'pass' : 'info';
+      const headline = bits.length
+        ? `${bits.join(', and ')}.`.replace(/^./, (c) => c.toUpperCase())
+        : tone === 'warn' ? 'Some numbers could not be read or decided, so a person should look.'
+        : found ? `All ${plural(found, 'number')} ${counts.derived ? 'are stated in the evidence or built from it' : 'trace to the evidence'}${sum ? ', and the rows add up' : ''}.`
+        : 'No numbers found in the answer.';
+      return {
+        tone,
+        headline,
+        summary: `${counts.traced} traced, ${counts.rounded} rounded, ${counts.derived} derived, ${counts.untraced} untraced, ${counts.unknown} unknown.`,
+        rows,
+        raw: { trace: result, reconcile: sum },
+      };
+    },
+    snippet: (input) => `import { traceNumbers${input.table == null ? '' : ', reconcile'} } from 'number-trace-kit';
+
+const evidence = ${js(input.evidence)};
+const output = ${js(input.output)};
+
+const result = traceNumbers(output, evidence, { preset: ${js(input.mode === 'report' ? 'report' : 'strict')} });
+for (const n of result.numbers) console.log(n.token.raw.padEnd(14), n.status);
+console.log(\`verdict: \${result.verdict}\`);
+${input.table == null ? '' : `
+const sum = reconcile(${js(input.table)});
+console.log(sum.ok ? 'rows add up' : \`rows sum to \${sum.sum}, total says \${sum.total}\`);
+`}
+// Fail the build when a number is missing from the evidence${input.table == null ? '' : ' or the rows do not add up'}.
+if (result.verdict !== 'clean'${input.table == null ? '' : ' || !sum.ok'}) process.exitCode = 1;
+`,
+  },
+
   // ------------------------------------------------------------ corroboration
   {
     id: 'corroboration-kit',
@@ -499,6 +638,311 @@ for (const p of pages) {
 // Fail the build when any page is stale.
 if (stale > 0) process.exitCode = 1;
 `,
+  },
+
+  // ---------------------------------------------------------- accuracy-claim
+  {
+    id: 'accuracy-claim-kit',
+    version: '0.1.0',
+    group: GROUPS[1],
+    name: 'Accuracy figures',
+    question: 'Do the counts behind an accuracy figure carry it?',
+    limit: 'Takes your word on who labeled the items and how they were picked. It judges the figure against the counts, not whether the system is accurate.',
+    fields: [
+      { key: 'claim', label: 'The figure you want to publish', kind: 'json', rows: 6 },
+      { key: 'evidence', label: 'The counts, who labeled and how items were picked', kind: 'json', rows: 12 },
+    ],
+    presets: [
+      {
+        label: 'A figure the counts carry',
+        input: {
+          claim: { metric: 'accuracy', value: 0.98, display: '98%' },
+          evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
+        },
+      },
+      {
+        label: 'More than the counts allow',
+        input: {
+          claim: { metric: 'accuracy', value: 0.995, display: '99.5%' },
+          evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
+        },
+      },
+      {
+        label: 'Between safe and observed',
+        input: {
+          claim: { metric: 'accuracy', value: 0.985, display: '98.5%' },
+          evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
+        },
+      },
+      {
+        label: 'Labels from a model',
+        input: {
+          claim: { metric: 'accuracy', value: 0.98, display: '98%' },
+          evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'model' }, sampling: 'random' },
+        },
+      },
+    ],
+    run(kit, input) {
+      const r = kit.assessAccuracyClaim({ claim: input.claim, ...input.evidence });
+      const display = String(input.claim.display);
+      const pct = (x) => `${(x * 100).toFixed(2)}%`;
+      const OK = new Set(['claim-within-bound', 'matches-observed-rate']);
+      const NOTE = new Set(['precision-too-fine', 'claim-worse-than-counts', 'strata-not-reweighted']);
+      const TITLES = {
+        'claim-within-bound': 'The figure is within what the counts support',
+        'matches-observed-rate': 'The figure is the rate the counts show',
+        'claim-outside-interval': 'The figure goes past what the counts allow',
+        'claim-beyond-conservative-bound': 'The figure is more than the counts carry',
+        'precision-too-fine': 'The figure has more digits than the counts support',
+        'claim-worse-than-counts': 'The figure is less favorable than the counts',
+        'strata-not-reweighted': 'Groups are pooled without weights',
+        'text-figure-differs': 'The text states a different figure',
+        'metric-not-supported': 'This kind of score cannot be judged here',
+        'n-undisclosed': 'The counts are missing',
+        'no-human-labels': 'The labels came from a model',
+        'unknown-label-source': 'Nobody can say where the labels came from',
+        'mixed-label-source': 'Some labels came from a model',
+        'ranked-sample': 'The sample was picked by rank',
+        'convenience-sample': 'The sample is whatever was easy to collect',
+        'unknown-sampling': 'Nobody can say how the sample was picked',
+        'sample-too-small': 'The sample is too small',
+        'merged-strata-differ': 'Pooling the groups hides a real difference',
+        'stratified-without-strata': 'Stratified sample, but no groups were given',
+        'evaluation-stale': 'The evaluation is out of date',
+        'evaluation-date-missing': 'The evaluation has no date',
+      };
+      const FIXES = {
+        'claim-outside-interval': 'Publish the suggested statement below instead, or check more items.',
+        'claim-beyond-conservative-bound': 'Publish the suggested statement below instead, or check more items.',
+        'precision-too-fine': 'Print fewer digits.',
+        'claim-worse-than-counts': 'Check whether the printed figure is stale or mistyped.',
+        'strata-not-reweighted': 'Report each group separately if they were sampled at different rates.',
+        'text-figure-differs': 'Make the text state the same figure.',
+        'metric-not-supported': 'Report accuracy, error rate, precision or recall instead.',
+        'n-undisclosed': 'Write down how many items were checked and how many were right.',
+        'no-human-labels': 'Have people label the items, or publish no accuracy figure.',
+        'unknown-label-source': 'Write down who labeled the items.',
+        'mixed-label-source': 'Judge only the items that people labeled.',
+        'ranked-sample': 'Draw a random sample instead of the top-ranked items.',
+        'convenience-sample': 'Pick items at random, or do not claim the figure beyond this sample.',
+        'unknown-sampling': 'Write down how the items were picked.',
+        'sample-too-small': 'Check more items before you publish a figure.',
+        'merged-strata-differ': 'Report each group separately.',
+        'stratified-without-strata': 'Give the counts for each group.',
+      };
+      const rows = [];
+      const count = Math.max(r.reasons.length, r.explanation.length);
+      for (let i = 0; i < count; i += 1) {
+        const code = r.reasons[i];
+        const mark = OK.has(code) ? 'ok' : NOTE.has(code) ? 'info' : r.verdict === 'contradicted' && code === 'claim-outside-interval' ? 'bad' : 'warn';
+        rows.push({
+          mark,
+          title: TITLES[code] ?? (code ? `${code.charAt(0).toUpperCase()}${code.slice(1).replace(/-/g, ' ')}` : 'Note'),
+          detail: r.explanation[i] ?? code,
+          fix: mark === 'ok' ? undefined : FIXES[code] ?? 'Follow the explanation, then run the check again.',
+        });
+      }
+      rows.push({ mark: 'info', title: 'What you can say instead', detail: r.suggestedStatement });
+      const tone = { supported: 'pass', contradicted: 'fail', overstated: 'warn', refused: 'warn' }[r.verdict] ?? 'info';
+      const headline = {
+        supported: `The counts carry ${display}.`,
+        contradicted: `${display} goes past what the counts allow.`,
+        overstated: `The counts do not carry ${display} as printed.`,
+        refused: `No verdict on ${display}: the counts cannot carry a figure yet.`,
+      }[r.verdict] ?? `Verdict: ${r.verdict}.`;
+      const interval = r.interval;
+      const LOWER = new Set(['error-rate', 'false-positive-rate', 'false-negative-rate']);
+      return {
+        tone,
+        headline,
+        summary: interval
+          ? `${Math.round(interval.confidence * 100)}% interval from the counts: ${pct(interval.low)} to ${pct(interval.high)}. Observed ${pct(interval.point)} (${interval.successes} of ${interval.n}).`
+          : 'No interval: the evidence has to be complete before the kit will judge a figure.',
+        rows,
+        viz: {
+          type: 'interval',
+          better: LOWER.has(r.metric) ? 'lower' : 'higher',
+          claimed: Number.isFinite(r.claimed) && r.claimed >= 0 && r.claimed <= 1 ? r.claimed : null,
+          display,
+          verdict: r.verdict,
+          mark: { supported: 'ok', contradicted: 'bad', overstated: 'warn', refused: 'warn' }[r.verdict] ?? 'info',
+          interval: interval ? { low: interval.low, high: interval.high, point: interval.point, confidence: interval.confidence, successes: interval.successes, n: interval.n } : null,
+        },
+        raw: r,
+      };
+    },
+    snippet: (input) => `import { assessAccuracyClaim } from 'accuracy-claim-kit';
+
+const claim = ${js(input.claim)};
+const evidence = ${js(input.evidence)};
+
+const result = assessAccuracyClaim({ claim, ...evidence });
+console.log(result.verdict, result.reasons.join(', '));
+for (const line of result.explanation) console.log(' -', line);
+console.log('Say this instead:', result.suggestedStatement);
+
+// Fail the build unless the counts carry the figure.
+if (result.verdict !== 'supported') process.exitCode = 1;
+`,
+  },
+
+  // ------------------------------------------------------------------ parity
+  {
+    id: 'parity-kit',
+    version: '0.1.0',
+    group: GROUPS[1],
+    name: 'Copies and dates',
+    question: 'Does every copy of a fact still match its source, and did the review date move for a reason?',
+    limit: 'Compares the data you give it. It does not know which copy is right, prove that a person rechecked anything or check that a value is true.',
+    fields: [
+      { key: 'source', label: 'The data you trust (source of truth)', kind: 'json', rows: 9 },
+      { key: 'copy', label: 'A copy you publish somewhere else', kind: 'json', rows: 9 },
+      { key: 'earlier', label: 'The source before its last update ([] skips the date check)', kind: 'json', rows: 9 },
+      { key: 'options', label: 'Which fields hold the review date and where a value came from', kind: 'json', rows: 4 },
+    ],
+    presets: [
+      {
+        label: 'A copy that drifted',
+        input: {
+          source: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+          ],
+          copy: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', priceUsd: 25, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'enterprise', name: 'Enterprise', priceUsd: 199, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+          ],
+          earlier: [],
+          options: { reviewedField: 'lastReviewed', sourceFields: ['source'] },
+        },
+      },
+      {
+        label: 'Dates moved, nothing rechecked',
+        input: {
+          source: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+          ],
+          copy: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+          ],
+          earlier: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+          ],
+          options: { reviewedField: 'lastReviewed', sourceFields: ['source'] },
+        },
+      },
+      {
+        label: 'A copy and dates that hold up',
+        input: {
+          source: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+          ],
+          copy: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+          ],
+          earlier: [
+            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', priceUsd: 25, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+          ],
+          options: { reviewedField: 'lastReviewed', sourceFields: ['source'] },
+        },
+      },
+    ],
+    run(kit, input) {
+      const { sourceFields: _sourceFields, ...shared } = input.options;
+      const mirror = kit.compareMirror(input.source, input.copy, shared);
+      const skipDates = Array.isArray(input.earlier) && input.earlier.length === 0;
+      const audit = skipDates ? null : kit.auditReviewStamps(input.earlier, input.source, input.options);
+      const val = (v) => (v === undefined ? 'no value' : JSON.stringify(v));
+      const SIDE = { canonical: 'source', mirror: 'copy', before: 'earlier snapshot', after: 'source' };
+      const rows = [];
+      const named = new Set();
+      const WHY = { missing: 'is missing', 'not-a-string': 'is not text', 'zoneless-timestamp': 'has a time but no zone', 'unparseable-date': 'is not a date the kit can read', 'expiry-removed': 'was removed' };
+      const problemRows = (report) => {
+        for (const d of report.duplicateKeys) rows.push({ mark: 'warn', title: `${d.id} appears more than once in the ${SIDE[d.side] ?? d.side}`, detail: `Positions ${d.positions.join(', ')}. The kit cannot tell which record is right.`, fix: 'Keep one record per id.' });
+        for (const g of report.suspectKeys) rows.push({ mark: 'warn', title: `Look-alike ids: ${g.keys.map((k) => k.key).join(' and ')}`, detail: 'They differ only in case, spacing or look-alike characters, so they may be one record.', fix: 'Pick one spelling and use it everywhere.' });
+        for (const i of report.invalid) rows.push({ mark: 'warn', title: `A record in the ${SIDE[i.side] ?? i.side} could not be read`, detail: i.detail ?? i.reason, fix: 'Fix the record so the kit can read it.' });
+        for (const name of report.unknownFields.filter((n) => !named.has(n))) {
+          named.add(name);
+          rows.push({ mark: 'warn', title: `The field ${name} appears in no record`, detail: 'The check could not use it, so it did not run the way you meant.', fix: 'Correct the field name in the options or in the data.' });
+        }
+      };
+      for (const id of mirror.missing) rows.push({ mark: 'bad', title: `${id} is missing from the copy`, detail: 'The source has it. The copy does not.', fix: 'Add it to the copy, or take it out of the source on purpose.' });
+      for (const id of mirror.extra) rows.push({ mark: 'bad', title: `${id} is in the copy but not in the source`, detail: 'Nothing in the source backs it.', fix: 'Remove it from the copy, or add it to the source.' });
+      for (const c of mirror.changed) {
+        const detail = c.change === 'different' ? `The source says ${val(c.canonical)}. The copy says ${val(c.mirror)}.`
+          : c.change === 'missing-in-mirror' ? `The source has ${val(c.canonical)}. The copy has no such field.`
+          : `The copy has ${val(c.mirror)}. The source has no such field.`;
+        rows.push({ mark: 'bad', title: `${c.id}: ${c.field} differs`, detail, fix: 'Rebuild the copy from the source instead of editing it by hand.' });
+      }
+      for (const s of mirror.stampHidesDrift) rows.push({ mark: 'bad', title: `${s.id}: same review date, different data`, detail: `Both say reviewed ${s.reviewedValue}, yet ${s.fields.join(', ')} ${s.fields.length === 1 ? 'differs' : 'differ'}. The date vouches for a mismatch.`, fix: 'Recheck the record, then update the copy and its review date together.' });
+      if (mirror.noFieldsCompared) rows.push({ mark: 'warn', title: 'No fields were compared', detail: 'Every field was left out, so nothing was checked.', fix: 'Stop leaving every field out of the comparison.' });
+      problemRows(mirror);
+      if (mirror.ok) rows.push({ mark: 'ok', title: 'Every record in the copy matches the source', detail: `${plural(mirror.compared, 'record')} compared, field by field.` });
+      if (audit) {
+        for (const s of audit.stampOnly) rows.push({ mark: 'bad', title: `${s.id}: review date moved with no change behind it`, detail: `From ${s.from} to ${s.to}. No value, source or reviewer changed.`, fix: 'Move the date only after a recheck that leaves a mark in the data, such as a changed source.' });
+        for (const b of audit.bulkBump) rows.push({ mark: 'bad', title: `${plural(b.count, 'record')} moved to ${b.date}`, detail: b.summary, fix: 'If the whole file was rechecked, record that in the data.' });
+        for (const f of audit.future) rows.push({ mark: 'bad', title: `${f.id}: review date is in the future`, detail: `The date ${f.value} is later than now.`, fix: 'Correct the date.' });
+        for (const b of audit.backward) rows.push({ mark: 'bad', title: `${b.id}: review date moved earlier`, detail: `From ${b.from} to ${b.to}.`, fix: 'Find out why the date went back.' });
+        for (const e of audit.extendedDeadlines) rows.push({ mark: 'warn', title: `${e.id}: deadline pushed later`, detail: `From ${e.from} to ${e.to}, with no change to the source.`, fix: 'Extend a deadline only after rechecking the source.' });
+        for (const u of audit.unknown) rows.push({ mark: 'warn', title: `${u.id}: ${u.field} could not be read`, detail: `In the ${SIDE[u.side] ?? u.side}, the date ${WHY[u.reason] ?? u.reason.replace(/-/g, ' ')}.`, fix: 'Write the date as YYYY-MM-DD, or as a timestamp with a zone.' });
+        if (audit.noOverlap) rows.push({ mark: 'warn', title: 'No record appears in both snapshots', detail: 'Nothing could be compared.', fix: 'Check that you picked the right two snapshots.' });
+        problemRows(audit);
+        if (audit.added.length || audit.removed.length) rows.push({ mark: 'info', title: 'Records changed since the earlier snapshot', detail: `${audit.added.length ? `Added: ${audit.added.join(', ')}. ` : ''}${audit.removed.length ? `Removed: ${audit.removed.join(', ')}.` : ''}`.trim() });
+        if (audit.ok) rows.push({ mark: 'ok', title: 'Review dates moved only where the data changed', detail: `${plural(audit.compared, 'record')} compared with the earlier snapshot.` });
+      } else {
+        rows.push({ mark: 'skip', title: 'Review dates not checked', detail: 'No earlier snapshot was given.' });
+      }
+      const flagged = mirror.status === 'flagged' || audit?.status === 'flagged';
+      const unknown = mirror.status === 'unknown' || audit?.status === 'unknown';
+      const parts = [];
+      if (mirror.status === 'flagged') parts.push(`The copy has drifted from its source in ${plural(mirror.missing.length + mirror.extra.length + mirror.changed.length, 'place')}`);
+      if (audit?.status === 'flagged') parts.push(`${parts.length ? 'r' : 'R'}eview dates moved with nothing in the data to show a recheck`);
+      return {
+        tone: flagged ? 'fail' : unknown ? 'warn' : 'pass',
+        headline: flagged ? `${parts.join(', and ')}.`
+          : unknown ? 'Something could not be checked, so this is not a pass.'
+          : `The copy matches its source${audit ? ' and the review dates moved for a reason' : ''}.`,
+        summary: `${plural(mirror.compared, 'record')} compared with the source${audit ? `, ${audit.compared} with the earlier snapshot` : ''}.`,
+        rows,
+        raw: { copy: mirror, dates: audit },
+      };
+    },
+    snippet: (input) => {
+      const skip = Array.isArray(input.earlier) && input.earlier.length === 0;
+      return `import { compareMirror${skip ? '' : ', auditReviewStamps'} } from 'parity-kit';
+
+const source = ${js(input.source)};
+const copy = ${js(input.copy)};
+const options = ${js(input.options)};
+const { sourceFields, ...shared } = options; // the copy check takes only the shared options
+
+const mirror = compareMirror(source, copy, shared);
+console.log('copy against source:', mirror.status);
+for (const c of mirror.changed) console.log(\`  \${c.id}.\${c.field}: source \${JSON.stringify(c.canonical)}, copy \${JSON.stringify(c.mirror)}\`);
+${skip ? '' : `
+const earlier = ${js(input.earlier)};
+const audit = auditReviewStamps(earlier, source, options);
+console.log('review dates:', audit.status);
+for (const s of audit.stampOnly) console.log(\`  \${s.id}: \${s.from} to \${s.to}, nothing else changed\`);
+`}
+// Fail the build when a copy drifts${skip ? '' : ' or a review date moves with nothing behind it'}. Treat "unknown" as a failure too.
+if (!mirror.ok${skip ? '' : ' || !audit.ok'}) process.exitCode = 1;
+`;
+    },
   },
 
   // ------------------------------------------------------- payout-invariance
@@ -1016,7 +1460,7 @@ if (!check.allowed) process.exitCode = 1;
   },
 ];
 
-/** The MCP server with tools for eleven of the 12 kits, for AI coding agents. */
+/** The MCP server with tools for eleven of the 15 kits, for AI coding agents. */
 export const MCP = {
   id: 'honesty-mcp',
   version: '0.3.0',

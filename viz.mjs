@@ -427,6 +427,71 @@ function budget(v, W, motion) {
   return svg;
 }
 
+// --------------------------------------------------------------- interval
+// A claimed figure set against the interval its counts allow, on a true
+// percent scale zoomed to where the numbers are. The band is the interval,
+// the dark tick is the observed rate, and the badge is the claim.
+function interval(v, W, motion) {
+  const pad = 26;
+  const iv = v.interval;
+  const pct = (x, d = 2) => `${(x * 100).toFixed(d)}%`;
+  const verdictText = { supported: 'supported', contradicted: 'contradicted', overstated: 'overstated', refused: 'refused' }[v.verdict] ?? v.verdict;
+  const points = [...(v.claimed === null ? [] : [v.claimed]), ...(iv ? [iv.low, iv.high, iv.point] : [])];
+  let lo = 0, hi = 1;
+  if (points.length && iv) {
+    const min = Math.min(...points), max = Math.max(...points);
+    const span = Math.max(max - min, 0.002);
+    lo = Math.max(0, min - span * 0.4);
+    hi = Math.min(1, max + span * 0.4);
+  }
+  const step = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5].find((s) => (hi - lo) / s <= 5) ?? 0.5;
+  const digits = step * 100 >= 1 ? 0 : 1;
+  const x = (val) => pad + ((val - lo) / (hi - lo)) * (W - pad * 2);
+  const rows = [];
+  if (iv) {
+    rows.push({ kind: 'band', text: `${Math.round(iv.confidence * 100)}% interval from the counts: ${pct(iv.low)} to ${pct(iv.high)}` });
+    rows.push({ kind: 'point', text: `Observed: ${pct(iv.point)} (${iv.successes} of ${iv.n})` });
+  } else {
+    rows.push({ kind: 'none', text: 'No interval: the evidence is incomplete.' });
+  }
+  if (v.claimed === null) rows.push({ kind: 'none', text: 'The figure is not a proportion, so it cannot be placed on this scale.' });
+  if (iv) rows.push({ kind: 'note', text: v.better === 'lower' ? 'A claim below the band goes beyond the counts.' : 'A claim above the band goes beyond the counts.' });
+  const axisY = 58;
+  const H = axisY + 40 + rows.length * 22 + 6;
+  const svg = frame(W, H, `Claimed ${v.display} (${verdictText})${iv ? `, interval ${pct(iv.low)} to ${pct(iv.high)}, observed ${pct(iv.point)}` : ', no interval'}`);
+  add(svg, 'rect', { x: pad, y: axisY - 7, width: W - pad * 2, height: 14, class: 'v-track' });
+  if (iv) {
+    const band = add(svg, 'rect', { x: x(iv.low), y: axisY - 7, width: Math.max(2, x(iv.high) - x(iv.low)), height: 14, class: 'v-bar v-info' });
+    band.style.transformBox = 'fill-box';
+    band.style.transformOrigin = 'center';
+    play(motion, band, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 600 });
+    add(svg, 'line', { x1: x(iv.point), y1: axisY - 12, x2: x(iv.point), y2: axisY + 12, class: 'v-ceiling' });
+  }
+  for (let t = Math.ceil(lo / step - 1e-9) * step; t <= hi + 1e-9; t += step) {
+    add(svg, 'line', { x1: x(t), y1: axisY + 9, x2: x(t), y2: axisY + 14, class: 'v-axis' });
+    add(svg, 'text', { x: x(t), y: axisY + 29, 'text-anchor': 'middle', class: 'v-label v-muted' }, `${(t * 100).toFixed(digits)}%`);
+  }
+  if (v.claimed !== null) {
+    const cx = x(v.claimed);
+    add(svg, 'line', { x1: cx, y1: 24, x2: cx, y2: axisY - 7, class: `v-stem v-${v.mark}` });
+    const badge = glyphBadge(svg, cx, 16, v.mark, 18);
+    const label = `${v.display} claimed`;
+    const w = measure(label, 'strong');
+    const right = cx + 16 + w <= W - 4;
+    add(svg, 'text', { x: right ? cx + 16 : cx - 16, y: 16.5, 'text-anchor': right ? 'start' : 'end', 'dominant-baseline': 'middle', class: 'v-strong' }, label);
+    play(motion, badge, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 600 });
+  }
+  let y = axisY + 56;
+  for (const row of rows) {
+    if (row.kind === 'band') add(svg, 'rect', { x: pad, y: y - 6, width: 18, height: 10, class: 'v-bar v-info' });
+    else if (row.kind === 'point') add(svg, 'line', { x1: pad + 9, y1: y - 8, x2: pad + 9, y2: y + 6, class: 'v-ceiling' });
+    const indent = row.kind === 'band' || row.kind === 'point' ? 28 : 0;
+    add(svg, 'text', { x: pad + indent, y, 'dominant-baseline': 'middle', class: row.kind === 'note' ? 'v-label v-muted' : 'v-label' }, fit(row.text, W - pad * 2 - indent, 'label'));
+    y += 22;
+  }
+  return svg;
+}
+
 // ------------------------------------------------------------------ lanes
 function lanes(v, _W, motion) {
   const wrap = document.createElement('div');
@@ -456,7 +521,7 @@ function lanes(v, _W, motion) {
   return wrap;
 }
 
-const RENDER = { threads, needle, timeline, slope, bars, dial, chain, budget, lanes };
+const RENDER = { threads, needle, timeline, slope, bars, dial, chain, budget, interval, lanes };
 
 /**
  * Draw a result graphic. `animate` asks for motion (the caller passes true

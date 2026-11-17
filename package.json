@@ -8,6 +8,7 @@
     "serve": "node tools/serve.mjs"
   },
   "devDependencies": {
+    "accuracy-claim-kit": "0.1.0",
     "advice-ledger-kit": "0.3.0",
     "agent-receipt-kit": "0.3.0",
     "audit-chain-kit": "0.3.0",
@@ -18,6 +19,8 @@
     "gifenc": "1.0.3",
     "grounding-kit": "0.3.0",
     "mutation-invariance-kit": "0.3.0",
+    "number-trace-kit": "0.1.0",
+    "parity-kit": "0.1.0",
     "payout-invariance-kit": "0.3.0",
     "pngjs": "7.0.0",
     "provenance-kit": "0.3.0",

@@ -22,6 +22,9 @@ const EXPECTED = {
   'agent-receipt-kit': ['fail', 'pass'],
   'audit-chain-kit': ['pass', 'fail'],
   'cost-governor-kit': ['pass', 'fail'],
+  'number-trace-kit': ['fail', 'pass', 'pass', 'fail'],
+  'accuracy-claim-kit': ['pass', 'fail', 'warn', 'warn'],
+  'parity-kit': ['fail', 'fail', 'pass'],
 };
 
 test('every kit has a demo and pins the version the tests install', () => {
@@ -70,6 +73,7 @@ const VIZ = {
   'grounding-kit': 'threads', 'corroboration-kit': 'needle', 'claims-registry-kit': 'timeline', 'freshness-kit': 'timeline',
   'payout-invariance-kit': 'slope', 'mutation-invariance-kit': 'bars', 'advice-ledger-kit': 'bars', 'trust-core': 'dial',
   'agent-receipt-kit': 'lanes', 'audit-chain-kit': 'chain', 'cost-governor-kit': 'budget', 'provenance-kit': null,
+  'accuracy-claim-kit': 'interval', 'number-trace-kit': null, 'parity-kit': null,
 };
 
 test('each result carries its graphic data and a fix for every problem', async () => {

@@ -85,6 +85,8 @@ test('graphics survive empty and minimal inputs', { timeout: 5000 }, () => {
     { type: 'dial', score: null, flags: { lowSourceCount: false, uniformSentiment: false }, confidence: 'insufficient' },
     { type: 'chain', entries: [], brokenAt: null, kind: null, anchorIndex: null },
     { type: 'budget', spent: 0, next: 0, ceiling: 1, allowed: true },
+    { type: 'interval', better: 'higher', claimed: null, display: '0.9', verdict: 'refused', mark: 'warn', interval: null },
+    { type: 'interval', better: 'higher', claimed: 0.5, display: '50%', verdict: 'refused', mark: 'warn', interval: null },
   ];
   for (const viz of cases) for (const width of WIDTHS) check(viz, width, `${viz.type} (minimal) at ${width}px`);
 });
@@ -94,4 +96,20 @@ test('timeline: a very long list still lays out quickly', { timeout: 5000 }, () 
   const started = performance.now();
   check({ type: 'timeline', unit: 'days since last reviewed', items, thresholds: [{ days: 30, label: 'warn 30d' }, { days: 90, label: 'stale 90d' }] }, 700, 'timeline 2000 items');
   assert.ok(performance.now() - started < 1500, `2000 items took ${(performance.now() - started).toFixed(0)} ms`);
+});
+
+test('interval: claims at, inside and beyond the band, either direction, at every width', { timeout: 5000 }, () => {
+  const iv = (low, high, point, successes, n) => ({ low, high, point, confidence: 0.95, successes, n });
+  const cases = [
+    { better: 'higher', claimed: 0.98, display: '98%', verdict: 'supported', mark: 'ok', interval: iv(0.98169, 0.99456, 0.99, 990, 1000) },
+    { better: 'higher', claimed: 0.995, display: '99.5%', verdict: 'contradicted', mark: 'bad', interval: iv(0.98169, 0.99456, 0.99, 990, 1000) },
+    { better: 'higher', claimed: 0.985, display: '98.5%', verdict: 'overstated', mark: 'warn', interval: iv(0.98169, 0.99456, 0.99, 990, 1000) },
+    { better: 'lower', claimed: 0.005, display: '0.5%', verdict: 'contradicted', mark: 'bad', interval: iv(0.0054, 0.0183, 0.01, 10, 1000) },
+    { better: 'higher', claimed: 1, display: '100%', verdict: 'overstated', mark: 'warn', interval: iv(0.9869, 1, 1, 290, 290) },
+    { better: 'higher', claimed: 0.5, display: '50%', verdict: 'supported', mark: 'ok', interval: iv(0.4, 0.6, 0.5, 50, 100) },
+    { better: 'higher', claimed: 0.999999, display: '99.9999%', verdict: 'contradicted', mark: 'bad', interval: iv(0.9, 0.9000001, 0.9, 9, 10) },
+  ];
+  for (const [i, c] of cases.entries()) {
+    for (const width of WIDTHS) check({ type: 'interval', ...c }, width, `interval case ${i} at ${width}px`);
+  }
 });
