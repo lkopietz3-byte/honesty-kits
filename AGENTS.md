@@ -1,16 +1,10 @@
-# Agent rules for honesty-kits
+# Contributor notes for honesty-kits
 
-This repository is the front door for the honesty kits: a static playground (GitHub Pages) plus the tests that keep it honest. It is in a hardening-only state. Do not add features unless Lucas asks in chat.
+This repository is the front door for the honesty kits: a static playground (GitHub Pages) plus the tests that keep it honest. It is in a hardening-only state. New features need an issue and a maintainer's agreement first.
 
-## Hold: nothing outward-facing without a go
+## Releases and deploys
 
-Nothing outward-facing (send, post, publish, outreach, payment links, licensing, deploy) happens until Lucas says go in chat. That includes `git push`, merging to `main` (which deploys the live site), tags, `npm publish`, `npm login`, trusted-publishing runs, directory or Show HN submissions, license text changes in this repo or any kit repo, and any message to anyone. Prepare the work on a branch and stop. The full list is in `DEPLOY.md`.
-
-Pushing a branch needs his OK too. Merging to `main` needs a separate, explicit "deploy".
-
-## Private branch
-
-`local-history` is a local-only branch with private history. Never push it, merge it, or check it out into another branch. Work from `origin/main` on a new branch, preferably in a git worktree.
+A merge to `main` deploys the live site, so only a maintainer merges. Pushes, tags, `npm publish`, trusted-publishing runs, license text changes in this repo or any kit repo, and any outreach are maintainer decisions. Open a pull request from a branch and stop there. The full list is in `DEPLOY.md`.
 
 ## The loop
 
@@ -24,7 +18,7 @@ node tools/build.mjs && npm run serve    # http://127.0.0.1:8080/
 
 CI uses Node 24. Run `npm ci` again after switching branches or pulling, before trusting any test result.
 
-To move pinned kit versions, use `node tools/bump-kits.mjs <kit>@<version> ...`. It edits `demos.mjs`, `package.json` and the lockfile together, then checks npm's signatures. Do not edit those three by hand. Bumping a version here does not publish anything, but it changes what the live site serves once merged, so it follows the hold above.
+To move pinned kit versions, use `node tools/bump-kits.mjs <kit>@<version> ...`. It edits `demos.mjs`, `package.json` and the lockfile together, then checks npm's signatures. Do not edit those three by hand. Bumping a version here does not publish anything, but it changes what the live site serves once merged, so it is a deploy decision for the maintainer.
 
 ## The claims-test rule
 
@@ -48,7 +42,7 @@ Label claims Verified (you ran or read it), Reported (someone else's word), Infe
 
 ## Other rules
 
-- One writer per branch. Commit logical groups with explicit paths (never `git add -A`) and check `git show --stat` after each commit.
+- One person or tool writing per branch. Commit logical groups with explicit paths (never `git add -A`) and check `git show --stat` after each commit.
 - Never print, log or commit secrets or tokens.
 - The kits and this site run locally in the browser. Do not add analytics, tracking, third-party scripts or fonts; the page's Content-Security-Policy and the build test enforce this.
 - Anything bigger than the task in front of you goes in the report as a follow-up, not into code.

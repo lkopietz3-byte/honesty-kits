@@ -9,7 +9,7 @@ Pick a kit, edit a real example, and see the verdict, a graphic of what it found
 
 ## The kits
 
-There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
+There are 12 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. These are the kits in the playground. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
 
 ### Check what your AI writes
 
@@ -47,6 +47,16 @@ There are 12 kits, each its own npm package, MIT licensed, with zero runtime dep
 | Kit | What it checks | Try it |
 | --- | --- | --- |
 | [cost-governor-kit](https://github.com/lkopietz3-byte/cost-governor-kit) | Will the next model call push you over budget? Cache-aware pricing and a pre-call ceiling. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#cost-governor-kit) |
+
+### Also on GitHub, not on npm yet
+
+More kit repositories are public. They are not in the playground, they are not covered by honesty-mcp, and they are not published to npm yet, so install them from their repositories for now.
+
+| Kit | What it checks |
+| --- | --- |
+| [accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit) | Does this accuracy or error-rate number have the evidence to carry it? Confidence intervals and rater agreement, computed from the counts you supply. |
+| [number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit) | Does every number in an AI output trace to the evidence it was given, and do rows add up to the printed totals? |
+| [parity-kit](https://github.com/lkopietz3-byte/parity-kit) | Does every copy of a fact still match its source of truth, and was a review date earned by an actual recheck? |
 
 ## Use them from your AI coding agent
 
