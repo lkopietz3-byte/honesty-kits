@@ -234,7 +234,22 @@ test('R1 follow-up: the snippet prints the exact rate when the kit text rounds i
   const near = { claim: { metric: 'accuracy', value: 0.99999999, text: 'Scores this on BenchX' },
     evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
   const out = runSnippet(kit, near);
-  assert.match(out.stdout, /Note: the counts give 99\.999999\d*%, not 100%/, out.stdout + out.stderr);
+  assert.match(out.stdout, /Note: the counts give 99\.999999\d*%, which is not 100%/, out.stdout + out.stderr);
   const plain = runSnippet(kit, { claim: { metric: 'accuracy', value: 0.98, display: '98%' }, evidence: structuredClone(kit.presets[0].input.evidence) });
   assert.doesNotMatch(plain.stdout, /Note: the counts give/);
+});
+
+test('R1 follow-up: no rounding note when the kit refuses the claim, and the snippet never prints 100% as the exact rate', async () => {
+  const kit = kitOf('accuracy-claim-kit');
+  const refused = { claim: { metric: 'accuracy', value: 0.99999999, text: 'Scores this on BenchX' },
+    evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'model' }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
+  const mod = await import('accuracy-claim-kit');
+  const shown = await kit.run(mod, structuredClone(refused));
+  assert.equal(shown.raw.verdict, 'refused');
+  assert.equal(shown.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false, 'playground: no note on a refusal');
+  assert.doesNotMatch(runSnippet(kit, refused).stdout, /Note: the counts give/, 'snippet: no note on a refusal');
+  const extreme = { claim: { metric: 'accuracy', value: 0.99, display: '99%+', text: 'Scores 99%+ on BenchX' },
+    evidence: { sample: { n: 1e15, correct: 1e15 - 1 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
+  const out = runSnippet(kit, extreme).stdout;
+  assert.doesNotMatch(out, /counts give 100[.0-9]*%/, out);
 });

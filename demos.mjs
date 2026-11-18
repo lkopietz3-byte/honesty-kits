@@ -840,8 +840,9 @@ if (stale > 0) process.exitCode = 1;
       const sampleCounts = input.evidence?.sample;
       const observedRate = census ? census.point
         : !LOWER.has(r.metric) && sampleCounts && sampleCounts.n > 0 ? (sampleCounts.correct ?? sampleCounts.n - sampleCounts.errors) / sampleCounts.n : null;
-      if (typeof observedRate === 'number' && !LOWER.has(r.metric) && observedRate < 1 && (observedRate * 100).toFixed(2) === '100.00') {
-        rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The counts give ${pct(observedRate)}, not 100%. Print that figure, not 100%.` });
+      const kitSays100 = /\b100\.00%/.test([...r.explanation, r.suggestedStatement].join(' '));
+      if (r.verdict !== 'refused' && kitSays100 && typeof observedRate === 'number' && !LOWER.has(r.metric) && observedRate < 1 && (observedRate * 100).toFixed(2) === '100.00') {
+        rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The counts give ${pct(observedRate)}, which is not 100%.` });
       }
       return {
         tone,
@@ -884,11 +885,15 @@ console.log('Say this instead:', result.suggestedStatement);
 // The kit writes the observed rate with two decimals, so a rate just under 100% prints as 100.00% above.
 const counts = evidence?.sample;
 const lowerIsBetter = ['error-rate', 'false-positive-rate', 'false-negative-rate'].includes(claim.metric);
-if (counts && counts.n > 0 && !lowerIsBetter) {
+const kitSays100 = [...result.explanation, result.suggestedStatement].some((line) => line.includes('100.00%'));
+if (result.verdict !== 'refused' && kitSays100 && counts && counts.n > 0 && !lowerIsBetter) {
   const rate = (counts.correct ?? counts.n - counts.errors) / counts.n;
   let digits = 2;
   while (rate < 1 && (rate * 100).toFixed(digits) === (100).toFixed(digits) && digits < 12) digits += 1;
-  if (digits > 2) console.log('Note: the counts give ' + (rate * 100).toFixed(digits) + '%, not 100%. Print that figure.');
+  if (digits > 2) {
+    const shown = (rate * 100).toFixed(digits);
+    console.log('Note: the counts give ' + (shown.startsWith('100') ? 'just under 100%' : shown + '%') + ', which is not 100%.');
+  }
 }
 
 // Fail the build unless the counts carry the figure.
