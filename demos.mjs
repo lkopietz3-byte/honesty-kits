@@ -834,6 +834,12 @@ if (stale > 0) process.exitCode = 1;
         const successes = LOWER.has(r.metric) ? r.n - correct : correct;
         census = { point: successes / r.n, successes, n: r.n };
       }
+      // accuracy-claim-kit 0.1.0 writes its own text with two decimals, so a rate just under 100% reads as 100.00% there.
+      // The kit's words are shown as the kit returned them; this note gives the exact rate beside them.
+      const kitRate = census ? census.point : r.interval?.point ?? null;
+      if (typeof kitRate === 'number' && kitRate < 1 && /\b100\.00%/.test([...r.explanation, r.suggestedStatement].join(' '))) {
+        rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The rate it is based on is ${pct(kitRate)}, not 100%. Print that figure, not 100%.` });
+      }
       return {
         tone,
         headline,

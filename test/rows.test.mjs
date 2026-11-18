@@ -426,3 +426,12 @@ test('R5 parity: separate bulk review dates are not reported as one date', async
   assert.equal(one.raw.dates.bulkBump.length, 1);
   assert.match(one.headline, /4 records moved to one review date at once/, one.headline);
 });
+
+test('R1 follow-up: when the kit text rounds a near-perfect rate to 100.00%, the playground notes the exact rate', async () => {
+  const plain = await run('accuracy-claim-kit', nearPerfect({ value: 0.99999999 }));
+  const note = plain.rows.find((row) => row.title === 'The kit rounds this rate to 100.00%');
+  assert.ok(note, 'the note is shown');
+  assert.match(note.detail, /99\.999999%/);
+  const ordinary = await run('accuracy-claim-kit', counted({ metric: 'accuracy', value: 0.98 }));
+  assert.equal(ordinary.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false, 'ordinary rates get no note');
+});
