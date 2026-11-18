@@ -435,3 +435,11 @@ test('R1 follow-up: when the kit text rounds a near-perfect rate to 100.00%, the
   const ordinary = await run('accuracy-claim-kit', counted({ metric: 'accuracy', value: 0.98 }));
   assert.equal(ordinary.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false, 'ordinary rates get no note');
 });
+
+test('R1 follow-up: a 100.00% quoted in the claim text does not trigger the rounding note', async () => {
+  const quoted = await run('accuracy-claim-kit', {
+    claim: { metric: 'accuracy', value: 0.98, text: 'Scores 100.00% on BenchX' },
+    evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
+  });
+  assert.equal(quoted.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false);
+});

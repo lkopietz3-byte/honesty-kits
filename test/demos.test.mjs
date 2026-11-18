@@ -228,3 +228,13 @@ test('R2 accuracy: the snippet refuses a claim inside the evidence, as the playg
   assert.match(run.stderr, /Put the figure in the claim field/);
   assert.doesNotMatch(run.stdout, /supported/, 'the snippet stops before judging anything');
 });
+
+test('R1 follow-up: the snippet prints the exact rate when the kit text rounds it to 100.00%, and only then', () => {
+  const kit = kitOf('accuracy-claim-kit');
+  const near = { claim: { metric: 'accuracy', value: 0.99999999, text: 'Scores this on BenchX' },
+    evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
+  const out = runSnippet(kit, near);
+  assert.match(out.stdout, /Note: the counts give 99\.999999\d*%, not 100%/, out.stdout + out.stderr);
+  const plain = runSnippet(kit, { claim: { metric: 'accuracy', value: 0.98, display: '98%' }, evidence: structuredClone(kit.presets[0].input.evidence) });
+  assert.doesNotMatch(plain.stdout, /Note: the counts give/);
+});

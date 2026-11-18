@@ -834,11 +834,14 @@ if (stale > 0) process.exitCode = 1;
         const successes = LOWER.has(r.metric) ? r.n - correct : correct;
         census = { point: successes / r.n, successes, n: r.n };
       }
-      // accuracy-claim-kit 0.1.0 writes its own text with two decimals, so a rate just under 100% reads as 100.00% there.
-      // The kit's words are shown as the kit returned them; this note gives the exact rate beside them.
-      const kitRate = census ? census.point : r.interval?.point ?? null;
-      if (typeof kitRate === 'number' && kitRate < 1 && /\b100\.00%/.test([...r.explanation, r.suggestedStatement].join(' '))) {
-        rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The rate it is based on is ${pct(kitRate)}, not 100%. Print that figure, not 100%.` });
+      // accuracy-claim-kit 0.1.0 writes the observed rate with two decimals, so a rate just under 100% reads as 100.00%
+      // in its own text. The kit's words are shown as returned; this note adds the exact rate. It is based on the counts,
+      // not on the text, so a 100.00% quoted from the user's own claim never triggers it.
+      const sampleCounts = input.evidence?.sample;
+      const observedRate = census ? census.point
+        : !LOWER.has(r.metric) && sampleCounts && sampleCounts.n > 0 ? (sampleCounts.correct ?? sampleCounts.n - sampleCounts.errors) / sampleCounts.n : null;
+      if (typeof observedRate === 'number' && !LOWER.has(r.metric) && observedRate < 1 && (observedRate * 100).toFixed(2) === '100.00') {
+        rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The counts give ${pct(observedRate)}, not 100%. Print that figure, not 100%.` });
       }
       return {
         tone,
@@ -877,6 +880,16 @@ const result = assessAccuracyClaim({ ...evidence, claim });
 console.log(result.verdict, result.reasons.join(', '));
 for (const line of result.explanation) console.log(' -', line);
 console.log('Say this instead:', result.suggestedStatement);
+
+// The kit writes the observed rate with two decimals, so a rate just under 100% prints as 100.00% above.
+const counts = evidence?.sample;
+const lowerIsBetter = ['error-rate', 'false-positive-rate', 'false-negative-rate'].includes(claim.metric);
+if (counts && counts.n > 0 && !lowerIsBetter) {
+  const rate = (counts.correct ?? counts.n - counts.errors) / counts.n;
+  let digits = 2;
+  while (rate < 1 && (rate * 100).toFixed(digits) === (100).toFixed(digits) && digits < 12) digits += 1;
+  if (digits > 2) console.log('Note: the counts give ' + (rate * 100).toFixed(digits) + '%, not 100%. Print that figure.');
+}
 
 // Fail the build unless the counts carry the figure.
 if (result.verdict !== 'supported') process.exitCode = 1;
