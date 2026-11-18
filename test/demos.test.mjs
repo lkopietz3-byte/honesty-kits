@@ -253,3 +253,12 @@ test('R1 follow-up: no rounding note when the kit refuses the claim, and the sni
   const out = runSnippet(kit, extreme).stdout;
   assert.doesNotMatch(out, /counts give 100[.0-9]*%/, out);
 });
+
+test('R1 follow-up: a 100.00% quoted in the claim text of a random sample never triggers the note', async () => {
+  const kit = kitOf('accuracy-claim-kit');
+  const quoted = { claim: { metric: 'accuracy', value: 0.98, display: '98%', text: 'Scores 100.00% on BenchX' },
+    evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' } };
+  const shown = await kit.run(await import('accuracy-claim-kit'), structuredClone(quoted));
+  assert.equal(shown.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false);
+  assert.doesNotMatch(runSnippet(kit, quoted).stdout, /Note: the counts give/);
+});

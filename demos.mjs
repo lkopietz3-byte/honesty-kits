@@ -840,7 +840,8 @@ if (stale > 0) process.exitCode = 1;
       const sampleCounts = input.evidence?.sample;
       const observedRate = census ? census.point
         : !LOWER.has(r.metric) && sampleCounts && sampleCounts.n > 0 ? (sampleCounts.correct ?? sampleCounts.n - sampleCounts.errors) / sampleCounts.n : null;
-      const kitSays100 = /\b100\.00%/.test([...r.explanation, r.suggestedStatement].join(' '));
+      // Only the kit's own count phrasing counts, e.g. "(999999990 of 1000000000, 100.00%)", never a number quoted from the claim.
+      const kitSays100 = !!census && [...r.explanation, r.suggestedStatement].some((line) => line.includes(`of ${census.n}, 100.00%`) || line.includes(`): 100.00% ${r.metric}`));
       if (r.verdict !== 'refused' && kitSays100 && typeof observedRate === 'number' && !LOWER.has(r.metric) && observedRate < 1 && (observedRate * 100).toFixed(2) === '100.00') {
         rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The counts give ${pct(observedRate)}, which is not 100%.` });
       }
@@ -885,7 +886,8 @@ console.log('Say this instead:', result.suggestedStatement);
 // The kit writes the observed rate with two decimals, so a rate just under 100% prints as 100.00% above.
 const counts = evidence?.sample;
 const lowerIsBetter = ['error-rate', 'false-positive-rate', 'false-negative-rate'].includes(claim.metric);
-const kitSays100 = [...result.explanation, result.suggestedStatement].some((line) => line.includes('100.00%'));
+// Only the kit's own count phrasing for a complete set counts, never a number quoted from the claim.
+const kitSays100 = result.basis === 'census' && [...result.explanation, result.suggestedStatement].some((line) => line.includes('of ' + result.n + ', 100.00%') || line.includes('): 100.00% ' + result.metric));
 if (result.verdict !== 'refused' && kitSays100 && counts && counts.n > 0 && !lowerIsBetter) {
   const rate = (counts.correct ?? counts.n - counts.errors) / counts.n;
   let digits = 2;
