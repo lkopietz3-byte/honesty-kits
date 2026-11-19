@@ -8,7 +8,7 @@
     "serve": "node tools/serve.mjs"
   },
   "devDependencies": {
-    "accuracy-claim-kit": "0.1.0",
+    "accuracy-claim-kit": "0.1.1",
     "advice-ledger-kit": "0.3.0",
     "agent-receipt-kit": "0.3.0",
     "audit-chain-kit": "0.3.0",
