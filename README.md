@@ -19,7 +19,7 @@ These have a benchmark you can rerun from the repository (number-trace-kit downl
 
 ## The kits
 
-There are 15 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. These are the kits in the playground. Plus honesty-mcp, a separate package that has tools for eleven of them, for AI coding agents (see below).
+There are 15 kits, each its own npm package, MIT licensed, with zero runtime dependencies and no network calls. Use one, or several. These are the kits in the playground. Plus honesty-mcp, a separate package that has tools for all 15 of them, for AI coding agents (see below).
 
 ### Check what your AI writes
 
@@ -63,7 +63,7 @@ There are 15 kits, each its own npm package, MIT licensed, with zero runtime dep
 
 ## Use them from your AI coding agent
 
-[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) works with Claude Code, Cursor, VS Code and any other MCP client. Its tools cover ten kits by default and eleven with its code-execution switch on (the switch adds the mutation-invariance-kit tool, which runs code you pass it). Nine of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx. The newest kits (accuracy-claim-kit, number-trace-kit and parity-kit) have no tools there yet.
+[honesty-mcp](https://github.com/lkopietz3-byte/honesty-mcp) works with Claude Code, Cursor, VS Code and any other MCP client. Its tools cover fourteen kits by default and fifteen with its code-execution switch on (the switch adds the mutation-invariance-kit tool, which runs code you pass it). Thirteen of them run the check on what you give them. For the other two (agent receipts and spend caps) the tool explains the pattern and hands you starter code, because those kits run inside your own app. It runs on your machine with npx.
 
 ```bash
 claude mcp add honesty-mcp -- npx -y honesty-mcp

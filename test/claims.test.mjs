@@ -218,7 +218,7 @@ test('honesty-mcp: the "tools for N of the kits" numbers match its source', { sk
   const facts = mcpFacts();
   assert.deepEqual(facts.kitsInSource, facts.kitsInDeps, 'the kits its tools import match its dependencies');
   const wrapped = facts.kitsInDeps.length;
-  assert.ok(wrapped > 0 && wrapped < KITS.length, 'wraps some but not all kits');
+  assert.ok(wrapped > 0 && wrapped <= KITS.length, 'wraps at least one kit and no more kits than exist (0.4.0 wraps all of them)');
   assert.ok(facts.tools.length >= wrapped, 'at least one tool per wrapped kit');
   for (const [name, text] of SURFACES) {
     for (const c of countClaims(text).filter((x) => x.kind === 'mcp-wrapped')) assert.equal(c.n, wrapped, `${name}: "${c.phrase}"`);

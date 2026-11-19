@@ -388,7 +388,7 @@ if (offenses.length > 0) process.exitCode = 1;
   // ------------------------------------------------------------ number-trace
   {
     id: 'number-trace-kit',
-    version: '0.1.0',
+    version: '0.1.1',
     group: GROUPS[0],
     name: 'Numbers',
     question: 'Does every number in an AI answer appear in the evidence it was given?',
@@ -1051,7 +1051,7 @@ if (result.verdict !== 'supported') process.exitCode = 1;
   // ------------------------------------------------------------------ parity
   {
     id: 'parity-kit',
-    version: '0.1.0',
+    version: '0.1.1',
     group: GROUPS[1],
     name: 'Copies and dates',
     question: 'Does every copy of a fact still match its source, and did the review date move for a reason?',
@@ -1852,10 +1852,10 @@ if (!check.allowed) process.exitCode = 1;
   },
 ];
 
-/** The MCP server with tools for eleven of the 15 kits, for AI coding agents. */
+/** The MCP server with tools for all 15 kits, for AI coding agents. */
 export const MCP = {
   id: 'honesty-mcp',
-  version: '0.3.0',
+  version: '0.4.0',
   serverName: 'honesty-mcp',
   config: { command: 'npx', args: ['-y', 'honesty-mcp'] },
 };
