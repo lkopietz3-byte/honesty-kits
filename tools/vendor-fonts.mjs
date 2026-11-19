@@ -1,41 +1,68 @@
-// One-time vendoring: download the two web fonts from Google Fonts into
-// static/fonts/ and write static/fonts/fonts.css pointing at the local files,
-// so the live site makes no third-party font requests. Both families are under
-// the SIL Open Font License 1.1 (licenses saved next to the files).
-//
-//   node tools/vendor-fonts.mjs
-import { mkdirSync, writeFileSync } from 'node:fs';
+// Vendor the OFL fonts from local copies without a network connection.
+// Usage: node tools/vendor-fonts.mjs <Instrument Sans assets> <Source Serif 4 assets>
+// The Instrument folder contains the 400–700 variable WOFF2 and its OFL text.
+// The Source folder contains Adobe's regular, semibold and italic fonts in WOFF2 format and OFL text.
+// If the originals are TTF, convert with fonttools ttLib.woff2 compress.
+import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 
-const CSS_URL = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap';
-const LICENSES = {
-  'OFL-IBMPlexMono.txt': 'https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/OFL.txt',
-  'OFL-SchibstedGrotesk.txt': 'https://raw.githubusercontent.com/google/fonts/main/ofl/schibstedgrotesk/OFL.txt',
-};
-// Google serves woff2 with unicode-range subsets to modern browsers.
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+const [instrument, source] = process.argv.slice(2);
+if (!instrument || !source) {
+  console.error('Usage: node tools/vendor-fonts.mjs <Instrument Sans assets> <Source Serif 4 assets>');
+  process.exit(1);
+}
+
+const fonts = [
+  [instrument, 'instrument-sans.woff2', 'Instrument Sans', 'normal', '400 700', 'woff2'],
+  [source, 'SourceSerif4-Regular.woff2', 'Source Serif 4', 'normal', '400', 'woff2'],
+  [source, 'SourceSerif4-SemiBold.woff2', 'Source Serif 4', 'normal', '600', 'woff2'],
+  [source, 'SourceSerif4-Italic.woff2', 'Source Serif 4', 'italic', '500', 'woff2'],
+];
+const licenses = [
+  [instrument, 'OFL-instrument-sans.txt', 'OFL-InstrumentSans.txt'],
+  [source, 'OFL-SourceSerif4.txt', 'OFL-SourceSerif4.txt'],
+];
+// Size adjustments use the relative widths of representative desk copy.
+// Vertical overrides use each vendored face's ascent and descent after sizing.
+const fallback = [
+  ['Instrument Sans', 'Arial', 'normal', '400 500', 101.68, 95.40, 24.59],
+  ['Instrument Sans', 'Arial Bold', 'normal', '600 700', 97.40, 99.59, 25.67],
+  ['Source Serif 4', 'Georgia', 'normal', '400', 105.19, 98.49, 31.85],
+  ['Source Serif 4', 'Georgia Bold', 'normal', '600 700', 93.91, 110.31, 35.67],
+  ['Source Serif 4', 'Georgia Italic', 'italic', '500', 97.56, 106.19, 34.34],
+].map(([family, local, style, weight, size, ascent, descent]) => `@font-face {
+  font-family: '${family} Fallback';
+  font-style: ${style};
+  font-weight: ${weight};
+  src: local('${local}');
+  size-adjust: ${size}%;
+  ascent-override: ${ascent}%;
+  descent-override: ${descent}%;
+  line-gap-override: 0%;
+}`);
 const dir = new URL('../static/fonts/', import.meta.url);
 mkdirSync(dir, { recursive: true });
 
-async function get(url, kind) {
-  const res = await fetch(url, { headers: { 'user-agent': UA } });
-  if (!res.ok) throw new Error(`${res.status} ${url}`);
-  return kind === 'text' ? res.text() : Buffer.from(await res.arrayBuffer());
-}
-
-let css = await get(CSS_URL, 'text');
-const urls = [...new Set([...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.woff2)\)/g)].map((m) => m[1]))];
-if (!urls.length) throw new Error('no woff2 URLs in the Google Fonts CSS');
-const manifest = [];
-for (const url of urls) {
-  const family = url.split('/s/')[1].split('/')[0];
-  const bytes = await get(url, 'bytes');
+const assets = fonts.map(([from, file, family, style, weight, format]) => {
+  const bytes = readFileSync(join(from, file));
   const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 12);
-  const name = `${family}-${hash}.woff2`;
-  writeFileSync(new URL(name, dir), bytes);
-  css = css.split(url).join(`fonts/${name}`);
-  manifest.push(`${name} ${bytes.length}`);
+  const name = file.replace(/(\.[^.]+)$/, `-${hash}$1`).toLowerCase();
+  const css = `@font-face {
+  font-family: '${family}';
+  font-style: ${style};
+  font-weight: ${weight};
+  font-display: swap;
+  src: url(fonts/${name}) format('${format}');
+}`;
+  return { bytes, name, css };
+});
+const licenseFiles = licenses.map(([from, file, name]) => ({ bytes: readFileSync(join(from, file)), name }));
+
+for (const { bytes, name } of [...assets, ...licenseFiles]) writeFileSync(new URL(name, dir), bytes);
+writeFileSync(new URL('fonts.css', dir), `/* Vendored OFL fonts. See OFL-InstrumentSans.txt and OFL-SourceSerif4.txt. */\n${[...assets.map(({ css }) => css), ...fallback].join('\n')}\n`);
+const used = new Set(assets.map(({ name }) => name));
+for (const file of readdirSync(dir)) {
+  if (file.endsWith('.woff2') && !used.has(file)) unlinkSync(new URL(file, dir));
 }
-for (const [name, url] of Object.entries(LICENSES)) writeFileSync(new URL(name, dir), await get(url, 'text'));
-writeFileSync(new URL('fonts.css', dir), `/* Vendored from Google Fonts by tools/vendor-fonts.mjs. SIL Open Font License 1.1: see OFL-*.txt. */\n${css}`);
-console.log(manifest.join('\n'));
+console.log(assets.map(({ name, bytes }) => `${name} ${bytes.length}`).join('\n'));
