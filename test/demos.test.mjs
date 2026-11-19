@@ -1,33 +1,34 @@
 // Runs every playground preset against the same kit versions the site loads
-// from jsDelivr (pinned in package.json), and checks the verdict each preset
+// from its own origin (pinned in package.json), and checks the verdict each preset
 // is meant to show. If a kit's behavior or output shape changes, this fails.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { KITS, MCP, mcpLinks, reportMarkdown, formatJson } from '../demos.mjs';
+import { DEFAULT_KIT, KITS, MCP, mcpLinks, reportMarkdown, formatJson } from '../demos.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const EXPECTED = {
-  'grounding-kit': ['fail', 'pass'],
-  'provenance-kit': ['fail', 'pass'],
-  'corroboration-kit': ['pass', 'fail', 'warn'],
-  'claims-registry-kit': ['fail', 'pass'],
-  'freshness-kit': ['fail'],
-  'payout-invariance-kit': ['pass', 'fail'],
-  'mutation-invariance-kit': ['pass', 'fail'],
-  'advice-ledger-kit': ['pass', 'fail'],
-  'trust-core': ['pass', 'warn', 'info'],
+  'grounding-kit': ['fail', 'info'],
+  'provenance-kit': ['fail', 'info'],
+  'corroboration-kit': ['fail', 'pass', 'warn'],
+  'claims-registry-kit': ['fail', 'info'],
+  'freshness-kit': ['fail', 'pass'],
+  'payout-invariance-kit': ['fail', 'pass'],
+  'mutation-invariance-kit': ['fail', 'pass'],
+  'advice-ledger-kit': ['fail', 'pass'],
+  'trust-core': ['warn', 'info', 'info'],
   'agent-receipt-kit': ['fail', 'pass'],
-  'audit-chain-kit': ['pass', 'fail'],
-  'cost-governor-kit': ['pass', 'fail'],
+  'audit-chain-kit': ['fail', 'pass'],
+  'cost-governor-kit': ['fail', 'pass'],
   'number-trace-kit': ['fail', 'pass', 'pass', 'fail'],
-  'accuracy-claim-kit': ['pass', 'fail', 'warn', 'warn'],
-  'parity-kit': ['fail', 'fail', 'pass'],
+  'accuracy-claim-kit': ['fail', 'pass', 'warn', 'warn'],
+  'parity-kit': ['fail', 'pass', 'fail'],
 };
 
 test('every kit has a demo and pins the version the tests install', () => {
+  assert.equal(DEFAULT_KIT, 'number-trace-kit');
   assert.deepEqual(KITS.map((k) => k.id).sort(), Object.keys(EXPECTED).sort());
   for (const k of KITS) assert.equal(k.version, pkg.devDependencies[k.id], `${k.id} version`);
 });
@@ -37,6 +38,7 @@ for (const kit of KITS) {
     const mod = await import(kit.id);
     const tones = [];
     for (const preset of kit.presets) {
+      assert.match(preset.situation, /^[A-Z].*\.$/, `${preset.label} has an example situation`);
       const result = await kit.run(mod, structuredClone(preset.input));
       assert.ok(result.headline && result.rows.length > 0, `${preset.label} has a headline and rows`);
       for (const row of result.rows) {
@@ -82,7 +84,7 @@ test('each result carries its graphic data and a fix for every problem', async (
     for (const preset of kit.presets) {
       const result = await kit.run(mod, structuredClone(preset.input));
       assert.equal(result.viz?.type ?? null, VIZ[kit.id], `${kit.id} ${preset.label} viz`);
-      if (result.tone === 'fail' || result.tone === 'warn') assert.ok(result.rows.some((r) => r.fix), `${kit.id} ${preset.label} offers at least one fix`);
+      if (result.tone === 'fail' || result.tone === 'warn') assert.ok(result.fix || result.rows.some((r) => r.fix), `${kit.id} ${preset.label} offers at least one fix`);
       for (const row of result.rows) if (row.fix) assert.ok(row.mark !== 'ok', `${kit.id} ${preset.label}: fix only on problem rows`);
       const md = reportMarkdown(kit, result);
       assert.ok(md.startsWith(`**${kit.id}@${kit.version}: `) && md.includes('What it does not check'), `${kit.id} report`);
@@ -102,7 +104,9 @@ test('every generated snippet runs against the real kit and exits like the playg
         writeFileSync(file, kit.snippet(structuredClone(preset.input)));
         const run = spawnSync(process.execPath, [file.pathname], { encoding: 'utf8' });
         assert.ok(run.status === 0 || run.status === 1, `${kit.id} ${preset.label} crashed: ${run.stderr}`);
-        if (result.tone === 'pass') assert.equal(run.status, 0, `${kit.id} ${preset.label} should exit 0`);
+        if (result.tone === 'pass' || ['No structural problems', 'Links and dates checked', 'No pattern flagged'].includes(result.stamp)) {
+          assert.equal(run.status, 0, `${kit.id} ${preset.label} should exit 0`);
+        }
         if (result.tone === 'fail') assert.equal(run.status, 1, `${kit.id} ${preset.label} should exit 1`);
         assert.ok(run.stdout.trim().length > 0, `${kit.id} ${preset.label} prints something`);
       }
@@ -137,6 +141,9 @@ test('every example survives a shared link round trip, and bad links are refused
   assert.equal(decodeExample(grounding, enc({ v: 1, input: { text: 1, evidence: {} } })), null, 'wrong type');
   assert.equal(decodeExample(grounding, enc({ v: 1, input: { text: 'x', evidence: {}, extra: 1 } })), null, 'unknown field');
   assert.equal(decodeExample(grounding, enc({ v: 2, input: { text: 'x', evidence: {} } })), null, 'unknown version');
+  const corroboration = KITS.find((kit) => kit.id === 'corroboration-kit');
+  const legacy = { coverage: 'strong', signals: [] };
+  assert.deepEqual(decodeExample(corroboration, enc({ v: 1, input: legacy })), legacy, 'old Evidence strength links had no claim field');
   assert.equal(decodeExample(grounding, 'not base64!'), null, 'bad characters');
   assert.equal(decodeExample(grounding, 'a'.repeat(20000)), null, 'too long');
   const md = reportMarkdown(grounding, { headline: 'h', rows: [] }, 'https://example.test/#grounding-kit~abc');
@@ -207,7 +214,7 @@ test('K3 numbers: the snippet reports a dropped sign or a unit on one side, and 
 
 test('K4 parity: the snippet sends each option only to the check that accepts it', () => {
   const kit = kitOf('parity-kit');
-  const input = structuredClone(kit.presets[1].input);
+  const input = structuredClone(kit.presets.find((preset) => preset.label === 'Dates moved, nothing rechecked').input);
   input.options = { ...input.options, now: '2026-11-01T00:00:00Z', numberTolerance: 0 };
   const run = runSnippet(kit, input);
   assert.equal(run.status, 1, `snippet exit ${run.status}: ${run.stdout}${run.stderr}`);
@@ -229,36 +236,38 @@ test('R2 accuracy: the snippet refuses a claim inside the evidence, as the playg
   assert.doesNotMatch(run.stdout, /supported/, 'the snippet stops before judging anything');
 });
 
-test('R1 follow-up: the snippet prints the exact rate when the kit text rounds it to 100.00%, and only then', () => {
+test('Accuracy snippet prints the kit’s exact rate', () => {
   const kit = kitOf('accuracy-claim-kit');
   const near = { claim: { metric: 'accuracy', value: 0.99999999, text: 'Scores this on BenchX' },
     evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
   const out = runSnippet(kit, near);
-  assert.match(out.stdout, /Note: the counts give 99\.999999\d*%, which is not 100%/, out.stdout + out.stderr);
+  assert.match(out.stdout, /the exact count \(999999990 of 1000000000, 99\.999999%\)/, out.stdout + out.stderr);
+  assert.match(out.stdout, /Say this instead: .*99\.999999% accuracy/);
+  assert.doesNotMatch(out.stdout, /100\.00%/);
   const plain = runSnippet(kit, { claim: { metric: 'accuracy', value: 0.98, display: '98%' }, evidence: structuredClone(kit.presets[0].input.evidence) });
-  assert.doesNotMatch(plain.stdout, /Note: the counts give/);
+  assert.doesNotMatch(plain.stdout, /100\.00%/);
 });
 
-test('R1 follow-up: no rounding note when the kit refuses the claim, and the snippet never prints 100% as the exact rate', async () => {
+test('Accuracy rows and snippets keep imperfect counts below 100% on a refusal and an extreme sample', async () => {
   const kit = kitOf('accuracy-claim-kit');
   const refused = { claim: { metric: 'accuracy', value: 0.99999999, text: 'Scores this on BenchX' },
     evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'model' }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
   const mod = await import('accuracy-claim-kit');
   const shown = await kit.run(mod, structuredClone(refused));
   assert.equal(shown.raw.verdict, 'refused');
-  assert.equal(shown.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false, 'playground: no note on a refusal');
-  assert.doesNotMatch(runSnippet(kit, refused).stdout, /Note: the counts give/, 'snippet: no note on a refusal');
   const extreme = { claim: { metric: 'accuracy', value: 0.99, display: '99%+', text: 'Scores 99%+ on BenchX' },
     evidence: { sample: { n: 1e15, correct: 1e15 - 1 }, provenance: { source: 'human', raters: 2 }, sampling: 'complete', benchmark: { name: 'BenchX' } } };
-  const out = runSnippet(kit, extreme).stdout;
-  assert.doesNotMatch(out, /counts give 100[.0-9]*%/, out);
+  for (const [input, result] of [[refused, shown], [extreme, await kit.run(mod, structuredClone(extreme))]]) {
+    assert.doesNotMatch(result.rows.map((row) => `${row.title} ${row.detail}`).join(' '), /100\.00%/);
+    assert.doesNotMatch(runSnippet(kit, input).stdout, /100\.00%/);
+  }
 });
 
-test('R1 follow-up: a 100.00% quoted in the claim text of a random sample never triggers the note', async () => {
+test('Accuracy rows and snippets never give a perfect result just because the claim text quotes one', async () => {
   const kit = kitOf('accuracy-claim-kit');
   const quoted = { claim: { metric: 'accuracy', value: 0.98, display: '98%', text: 'Scores 100.00% on BenchX' },
     evidence: { sample: { n: 1e9, correct: 999999990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' } };
   const shown = await kit.run(await import('accuracy-claim-kit'), structuredClone(quoted));
-  assert.equal(shown.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false);
-  assert.doesNotMatch(runSnippet(kit, quoted).stdout, /Note: the counts give/);
+  assert.doesNotMatch(shown.rows.map((row) => `${row.title} ${row.detail}`).join(' '), /100\.00%/);
+  assert.doesNotMatch(runSnippet(kit, quoted).stdout, /100\.00%/);
 });

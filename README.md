@@ -1,11 +1,21 @@
 # honesty kits
 
-Small, dependency-free TypeScript checks for the claims your AI product makes.
+Catch the numbers, citations and accuracy claims your AI can't back up. Small, dependency-free TypeScript checks for the claims your AI product makes.
 
-[![The playground: a draft with a bad citation gets fixed, a ranking moves when a partner pays more, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
+[![The playground: a number the AI made up is caught and fixed, Citations shows a contradiction that still passes its word-overlap check, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
 
 **[Try every kit in your browser →](https://lkopietz3-byte.github.io/honesty-kits/)**
-Pick a kit, edit a real example, and see the verdict, a graphic of what it found, a fix for each problem and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy tells the browser to block requests to any other site.
+Pick a check, try an example or paste your own text, and see the verdict, each sentence marked with what was found, a fix for each problem, what the check does not cover, and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy tells the browser to block requests to any other site.
+
+## How well they work
+
+These have a benchmark you can rerun from the repository (number-trace-kit downloads its public data first). Every figure below was printed by a fresh run of each repository's main branch on November 18, 2026. Most labels were written by the kits' author, so read each line as "the kit does what it documents on this data", not as a general accuracy rate.
+
+- **[number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit/blob/main/README.md#accuracy-on-real-data)**: on 289 real AI answers from RAGTruth, whose annotators marked the made-up passages, the `strict` preset flagged 96 of the 106 numbers in those passages that are missing from the source, returned the other 10 as unknown for a person to check, passed none, and flagged 14 of 697 numbers outside them. A plain regex check catches about as many unsupported answers (74 of 75 against the kit's 71 of 75 on a 150-answer holdout). The kit's edge is fewer false flags on answers the annotators left unmarked (11 of 75 against 22 of 75), mostly on data-to-text answers.
+- **[accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit/blob/main/README.md#agreement-with-an-independent-oracle-and-a-hand-labeled-holdout)**: its verdict matches a separately written oracle on 2,001 of 2,001 claims built from 216 rates printed in public FDA 510(k) summaries, and the hand label on 103 of 103 claims from 30 open-access papers and one vendor page. The oracle and the labels follow the README's rules and come from the same author, and only 6 of the 103 go through the interval math, so this shows the kit does what it documents, not that the rules are right.
+- **[parity-kit](https://github.com/lkopietz3-byte/parity-kit/blob/main/README.md#accuracy-on-real-data)**: on a holdout labeled before the kit ever ran on it (IANA status phrases, SPDX licenses, Gitea strings), it missed 0 of 7,526 items that should flag and wrongly flagged 0 of 37,965 that should pass. The labels come from the author's own scripts and items from one file are correlated, so read the zero as no failures seen, not as a probability.
+
+[grounding-kit](https://github.com/lkopietz3-byte/grounding-kit#readme), [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit/blob/main/README.md#strict-mode-for-ci) and [trust-core](https://github.com/lkopietz3-byte/trust-core#readme) report smaller measured results in their own READMEs, including where they fail: a negation or a changed number often passes grounding-kit's word-overlap check. The other kits have tests for the behavior their READMEs document and a section on their limits, but no measured results yet. The playground marks those "Not benchmarked yet".
 
 ## The kits
 
@@ -15,7 +25,7 @@ There are 15 kits, each its own npm package, MIT licensed, with zero runtime dep
 
 | Kit | What it checks | Try it |
 | --- | --- | --- |
-| [grounding-kit](https://github.com/lkopietz3-byte/grounding-kit) | Does each sentence cite evidence that actually says it? Flags uncited claims and citations that point at the wrong evidence. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#grounding-kit) |
+| [grounding-kit](https://github.com/lkopietz3-byte/grounding-kit) | Does each sentence carry a citation that points at matching evidence? Flags missing citations, unknown source IDs and too little word overlap. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#grounding-kit) |
 | [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit) | Does the copy sound more certain than its source allows ("independently verified", "guaranteed")? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#provenance-kit) |
 | [number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit) | Does every number in an AI answer appear in the evidence it was given, and do the rows add up to the printed total? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#number-trace-kit) |
 | [corroboration-kit](https://github.com/lkopietz3-byte/corroboration-kit) | How strong is the evidence for a claim, and does it point for or against it? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#corroboration-kit) |
@@ -24,7 +34,7 @@ There are 15 kits, each its own npm package, MIT licensed, with zero runtime dep
 
 | Kit | What it checks | Try it |
 | --- | --- | --- |
-| [claims-registry-kit](https://github.com/lkopietz3-byte/claims-registry-kit) | Is every claim on your site still backed by evidence someone checked recently? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#claims-registry-kit) |
+| [claims-registry-kit](https://github.com/lkopietz3-byte/claims-registry-kit) | Does each claim point at evidence that someone reviewed recently? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#claims-registry-kit) |
 | [accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit) | Do the counts behind an accuracy or error-rate figure carry it? Shows the interval the counts allow and a statement the evidence supports. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#accuracy-claim-kit) |
 | [parity-kit](https://github.com/lkopietz3-byte/parity-kit) | Does every copy of a fact still match its source, and did a review date move for a reason you can see in the data? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#parity-kit) |
 | [freshness-kit](https://github.com/lkopietz3-byte/freshness-kit) | How old is this information, and what should its "last reviewed" label say? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#freshness-kit) |
@@ -83,6 +93,6 @@ node tools/build.mjs && npm run serve    # builds dist/, then serves it at http:
 
 `node tools/rendered-check.mjs --playwright-root <path to playwright> --axe <path to axe-core>` loads the built page in a real browser at phone, tablet and desktop widths (light and dark) and checks every example, requests to other origins, focus, tap size and accessibility; it needs Playwright and axe-core installed somewhere and prints NOT_RUN without them.
 
-`node tools/demo-gif.mjs --playwright-root <path to playwright>` re-records `docs/demo.gif` from the live site, and `tools/og.mjs` re-captures the social card.
+`node tools/demo-gif.mjs --playwright-root <path to playwright>` re-records `docs/demo.gif` (pass `--url` to record a local build), and `node tools/og.mjs` renders the social card from `tools/og-card.html`.
 
 MIT licensed.

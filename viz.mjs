@@ -8,7 +8,6 @@
 
 const NS = 'http://www.w3.org/2000/svg';
 const OUT = 'cubic-bezier(0.33, 1, 0.68, 1)';
-const GLYPH = { ok: '✓', bad: '✕', warn: '!', info: 'i', skip: '–' };
 
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -23,6 +22,11 @@ function add(parent, tag, attrs, text) {
   parent.append(n);
   return n;
 }
+export function statusIcon(mark) {
+  const svg = node('svg', { class: 'icon status-icon', 'aria-hidden': 'true' });
+  add(svg, 'use', { href: `#i-${mark}` });
+  return svg;
+}
 function frame(width, height, label) {
   const svg = node('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': label, class: 'viz-svg' });
   return svg;
@@ -31,12 +35,13 @@ const trunc = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 // Text is measured with the page's own fonts (canvas measureText), so labels
 // can wrap, flip sides or shorten before they collide or leave the frame.
+const sans = "'Instrument Sans', 'Instrument Sans Fallback', Arial, sans-serif";
 const FONTS = {
-  caption: ["10px 'IBM Plex Mono', ui-monospace, monospace", 0.8],
-  tick: ["10.5px 'IBM Plex Mono', ui-monospace, monospace", 0],
-  label: ["12px 'Schibsted Grotesk', system-ui, sans-serif", 0],
-  tag: ["600 11.5px 'Schibsted Grotesk', system-ui, sans-serif", 0],
-  strong: ["600 13px 'Schibsted Grotesk', system-ui, sans-serif", 0],
+  caption: [`12px ${sans}`, 0.78],
+  tick: [`12px ${sans}`, 0],
+  label: [`12px ${sans}`, 0],
+  tag: [`600 12px ${sans}`, 0],
+  strong: [`600 13px ${sans}`, 0],
 };
 let ctx2d;
 function measure(text, kind) {
@@ -81,7 +86,7 @@ function drawIn(motion, path, duration, delay) {
 function glyphBadge(parent, x, y, mark, size = 16) {
   const g = add(parent, 'g', { class: `v-mark v-${mark}`, transform: `translate(${x} ${y})` });
   add(g, 'rect', { x: -size / 2, y: -size / 2, width: size, height: size, rx: 2, class: 'v-badge' });
-  add(g, 'text', { x: 0, y: 0.5, class: 'v-glyph', 'dominant-baseline': 'middle', 'text-anchor': 'middle' }, GLYPH[mark]);
+  add(g, 'use', { x: -6, y: -6, width: 12, height: 12, href: `#i-${mark}`, class: 'v-glyph' });
   return g;
 }
 function niceStep(max, maxTicks = 6) {
@@ -109,7 +114,7 @@ function threads(v, W, motion) {
   let step = 0;
   v.sentences.forEach((s, i) => {
     const y = top + i * rowH;
-    const mark = { grounded: 'ok', invalid: 'bad', ungrounded: 'warn', placeholder: 'info' }[s.status] ?? 'info';
+    const mark = { grounded: 'info', invalid: 'bad', ungrounded: 'warn', placeholder: 'info' }[s.status] ?? 'info';
     add(svg, 'text', { x: lx - 30, y: y + 0.5, 'dominant-baseline': 'middle', class: 'v-label' }, `S${i + 1}`);
     if (s.citedIds.length === 0) {
       const stub = add(svg, 'path', { d: `M ${lx + 10} ${y} H ${lx + 70}`, class: `v-line v-${mark}`, 'stroke-dasharray': '3 4' });
@@ -119,8 +124,8 @@ function threads(v, W, motion) {
     } else {
       for (const id of s.citedIds) {
         const ty = ey(id);
-        const good = s.status === 'grounded';
-        const path = add(svg, 'path', { d: `M ${lx + 10} ${y} C ${(lx + rx) / 2} ${y}, ${(lx + rx) / 2} ${ty}, ${rx - 18} ${ty}`, class: `v-line v-${good ? 'ok' : 'bad'}`, 'stroke-dasharray': good ? null : '6 5' });
+        const good = s.validIds?.includes(id) ?? s.status === 'grounded';
+        const path = add(svg, 'path', { d: `M ${lx + 10} ${y} C ${(lx + rx) / 2} ${y}, ${(lx + rx) / 2} ${ty}, ${rx - 18} ${ty}`, class: `v-line v-${good ? 'info' : 'bad'}`, 'stroke-dasharray': good ? null : '6 5' });
         drawIn(motion, path, 600, step * 180);
         if (!good) {
           const mx = (lx + rx) / 2, my = (y + ty) / 2;
@@ -206,7 +211,7 @@ function timeline(v, W, motion) {
     (lanes[lane] ??= []).push(entry);
     return entry;
   });
-  const H = 92 + lanes.length * 22;
+  const H = 100 + lanes.length * 22;
   const svg = frame(W, H, `Ages on a ${v.unit} scale`);
   const axisY = H - 30;
   add(svg, 'line', { x1: pad, y1: axisY, x2: W - pad, y2: axisY, class: 'v-axis' });
@@ -225,7 +230,14 @@ function timeline(v, W, motion) {
     for (let row = 0; row < 3; row += 1) options.push({ row, x0: tx + 4, x1: tx + 4 + w, anchor: 'start', at: tx + 4 }, { row, x0: tx - 4 - w, x1: tx - 4, anchor: 'end', at: tx - 4 });
     const spot = options.find((o) => o.x0 >= 0 && o.x1 <= W && taken.every((u) => u.row !== o.row || o.x1 + 6 < u.x0 || o.x0 - 6 > u.x1)) ?? options[0];
     taken.push(spot);
-    add(svg, 'line', { x1: tx, y1: 18, x2: tx, y2: axisY, class: 'v-threshold' });
+    // Leave a gap where this line would run through an item label or badge.
+    const breaks = [...new Set(placed.filter((item) => tx >= item.x0 - 2 && tx <= item.x1 + 2)
+      .map((item) => axisY - 22 - item.lane * 22))].sort((a, b) => a - b);
+    let start = 49;
+    for (const y of [...breaks, axisY + 9]) {
+      if (start < y - 9) add(svg, 'line', { x1: tx, y1: start, x2: tx, y2: y - 9, class: 'v-threshold' });
+      start = y + 9;
+    }
     add(svg, 'text', { x: spot.at, y: 14 + spot.row * 14, 'text-anchor': spot.anchor, class: 'v-tick' }, t.label);
   }
   placed.forEach((item, i) => {
@@ -288,11 +300,14 @@ function bars(v, W, motion) {
   const H = rows.length * rowH + 30;
   const svg = frame(W, H, `Values on a ${v.percent ? '0 to 100 percent' : 'zero-based'} scale`);
   const labelW = 92, valueW = 72;
-  const max = v.percent ? 1 : Math.max(0, ...rows.map((r) => r.value ?? 0)) * 1.1 || 1;
+  const peak = Math.max(0, ...rows.map((r) => r.value ?? 0));
+  const rateScale = v.percent && v.digits !== undefined;
+  const max = rateScale ? Math.ceil(peak * 100) / 100 || 0.01 : v.percent ? 1 : peak * 1.1 || 1;
+  const pct = (value, digits = 0) => `${(value * 100).toFixed(digits)}%`;
   const x = (val) => labelW + (val / max) * (W - labelW - valueW);
   add(svg, 'line', { x1: labelW, y1: 4, x2: labelW, y2: H - 22, class: 'v-axis' });
   add(svg, 'text', { x: labelW, y: H - 6, class: 'v-tick' }, v.percent ? '0%' : `0 ${v.unit}`);
-  add(svg, 'text', { x: x(max), y: H - 6, 'text-anchor': 'end', class: 'v-tick' }, v.percent ? '100%' : `${Math.round(max)} ${v.unit}`);
+  add(svg, 'text', { x: x(max), y: H - 6, 'text-anchor': 'end', class: 'v-tick' }, v.percent ? pct(max) : `${Math.round(max)} ${v.unit}`);
   rows.forEach((row, i) => {
     const y = 6 + i * rowH;
     add(svg, 'text', { x: labelW - 8, y: y + 9.5, 'text-anchor': 'end', 'dominant-baseline': 'middle', class: 'v-label' }, trunc(row.label, 12));
@@ -302,7 +317,7 @@ function bars(v, W, motion) {
     }
     const mark = row.base ? 'skip' : row.changed ? 'bad' : 'ok';
     const bar = add(svg, 'rect', { x: labelW, y, width: Math.max(1, x(row.value) - labelW), height: 18, rx: 1, class: `v-bar v-${mark}` });
-    add(svg, 'text', { x: x(row.value) + 6, y: y + 9.5, 'dominant-baseline': 'middle', class: 'v-value' }, v.percent ? `${Math.round(row.value * 100)}%` : `${row.value} ${v.unit}`);
+    add(svg, 'text', { x: x(row.value) + 6, y: y + 9.5, 'dominant-baseline': 'middle', class: 'v-value' }, v.percent ? pct(row.value, v.digits) : `${row.value} ${v.unit}`);
     bar.style.transformBox = 'view-box';
     bar.style.transformOrigin = `${labelW}px 0px`;
     play(motion, bar, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 600, delay: i * 140 });
@@ -313,16 +328,18 @@ function bars(v, W, motion) {
 // ------------------------------------------------------------------- dial
 function dial(v, W, motion) {
   const lines = [
-    [v.flags.lowSourceCount ? 'warn' : 'ok', v.flags.lowSourceCount ? 'Few source types' : 'Several source types'],
-    [v.flags.uniformSentiment ? 'warn' : 'ok', v.flags.uniformSentiment ? 'Uniform sentiment' : 'Varied sentiment'],
+    v.score === null ? ['skip', 'Source types not checked']
+      : [v.flags.lowSourceCount ? 'warn' : 'info', v.flags.lowSourceCount ? 'Few source types' : 'Several source types'],
+    v.uniformityChecked === false || v.score === null ? ['skip', 'Score similarity not checked']
+      : [v.flags.uniformSentiment ? 'warn' : 'info', v.flags.uniformSentiment ? 'Very similar scores' : 'No flag for similar scores'],
     ['info', `Confidence: ${v.confidence}`],
-  ].map(([m, text], i) => (v.score === null && i < 2 ? ['skip', `${text} (not assessed)`] : [m, text]));
+  ];
   // Beside the ring when the longest line fits; otherwise stacked below it.
   const beside = 154 + Math.max(...lines.map(([, t]) => measure(t, 'label'))) <= W - 4;
   const H = beside ? 128 : 124 + lines.length * 26;
   const svg = frame(W, H, v.score === null ? 'No score' : `Heuristic score ${v.score} of 100`);
   const cx = 64, cy = 64, r = 46;
-  const mark = v.score === null ? 'skip' : v.flags.lowSourceCount || v.flags.uniformSentiment ? 'warn' : 'ok';
+  const mark = v.score === null ? 'skip' : v.flags.lowSourceCount || v.flags.uniformSentiment ? 'warn' : 'info';
   add(svg, 'circle', { cx, cy, r, class: 'v-ring' });
   if (v.score !== null) {
     const len = 2 * Math.PI * r;
@@ -351,7 +368,7 @@ function chain(v, W, motion) {
   const gap = 18;
   const bw = Math.min(96, (W - 16 - gap * (slots - 1)) / slots);
   const H = 104;
-  const svg = frame(W, H, v.brokenAt === null ? 'Every link verified' : `Chain broken at entry ${v.brokenAt}`);
+  const svg = frame(W, H, v.brokenAt === null ? 'Every entry matches' : `Check stopped at entry ${v.brokenAt + 1}`);
   const left = Math.max(8, (W - (slots * bw + (slots - 1) * gap)) / 2);
   const x = (i) => left + i * (bw + gap);
   for (let i = 0; i < slots; i += 1) {
@@ -365,8 +382,9 @@ function chain(v, W, motion) {
     }
     const g = add(svg, 'g', { class: `v-block v-${state}${isMissing ? ' v-ghost' : ''}` });
     add(g, 'rect', { x: x(i), y: 18, width: bw, height: 44, rx: 2 });
-    add(g, 'text', { x: x(i) + 8, y: 34, class: 'v-label' }, isMissing ? `#${i} missing` : `#${e.index}`);
-    if (!isMissing) add(g, 'text', { x: x(i) + 8, y: 52, class: 'v-hash' }, bw > 70 ? e.hash : e.hash.slice(0, 4));
+    add(g, 'text', { x: x(i) + 8, y: 34, class: 'v-label' }, fit(`Entry ${i + 1}`, bw - 16, 'label'));
+    if (!isMissing) add(g, 'text', { x: x(i) + 8, y: 52, class: 'v-hash', 'aria-label': `Recorded hash ${e.hash}` }, fit(e.hash, bw - 16, 'label'));
+    else add(g, 'text', { x: x(i) + 8, y: 52, class: 'v-label' }, fit('Missing', bw - 16, 'label'));
     if (state === 'bad' && v.kind === 'content') {
       // The entry's content no longer matches its own hash: mark the block, not the link.
       add(g, 'path', { d: `M ${x(i) + bw - 22} 24 l 14 14 M ${x(i) + bw - 8} 24 l -14 14`, class: 'v-cross' });
@@ -379,7 +397,7 @@ function chain(v, W, motion) {
       add(a, 'circle', { cx: ax, cy: 82, r: 7 });
       add(a, 'path', { d: `M ${ax - 11} 82 H ${ax + 11} M ${ax} 71 V 93` });
       const right = ax + 96 < W;
-      add(a, 'text', { x: right ? ax + 14 : ax - 14, y: 86, 'text-anchor': right ? 'start' : 'end', class: 'v-tick' }, 'saved anchor');
+      add(a, 'text', { x: right ? ax + 14 : ax - 14, y: 86, 'text-anchor': right ? 'start' : 'end', class: 'v-tick' }, 'saved last entry');
       play(motion, a, [{ opacity: 0 }, { opacity: 1 }], { duration: 120, delay: slots * 160 });
     }
   }
@@ -389,8 +407,9 @@ function chain(v, W, motion) {
 // ----------------------------------------------------------------- budget
 function budget(v, W, motion) {
   const total = v.spent + v.next;
+  const digits = v.digits ?? 2;
   const near = Math.abs(v.ceiling - total) < v.ceiling * 0.05;
-  const svg = frame(W, 0, `Spend ${total.toFixed(4)} of a ${v.ceiling} ceiling`);
+  const svg = frame(W, 0, `Spend $${total.toFixed(digits)} of a $${v.ceiling.toFixed(digits)} ceiling`);
   const pad = 10;
   let top = 0;
   const drawBar = (lo, hi, caption, digits) => {
@@ -414,12 +433,12 @@ function budget(v, W, motion) {
     play(motion, nextBar, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 600 });
     top = y + 44;
   };
-  drawBar(0, Math.max(v.ceiling, total) * 1.04, `FULL BUDGET · $0 TO $${(Math.max(v.ceiling, total) * 1.04).toFixed(2)}`, 2);
+  drawBar(0, Math.max(v.ceiling, total) * 1.04, `FULL BUDGET · $0 TO $${(Math.max(v.ceiling, total) * 1.04).toFixed(2)}`, digits);
   if (near) {
     const span = Math.max(v.next * 6, v.ceiling * 0.002);
     const lo = Math.max(0, Math.min(v.spent, v.ceiling) - span);
     const hi = Math.max(v.ceiling, total) + span * 0.35;
-    drawBar(lo, hi, `ZOOMED · $${lo.toFixed(4)} TO $${hi.toFixed(4)} (THE NEXT CALL IS TOO SMALL TO SEE ABOVE)`, 4);
+    drawBar(lo, hi, `ZOOMED · $${lo.toFixed(digits)} TO $${hi.toFixed(digits)} (THE NEXT CALL IS TOO SMALL TO SEE ABOVE)`, digits);
   }
   const H = top + (near ? 0 : 10);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -459,8 +478,9 @@ function interval(v, W, motion) {
   const rows = [];
   // A count such as "990 of 1000" stays on one line when a row wraps.
   const count = (k, n) => `(${k}\u00a0of\u00a0${n})`;
+  const bounds = iv?.bounds?.join(' to ');
   if (iv) {
-    rows.push({ kind: 'band', text: `${Math.round(iv.confidence * 100)}% interval from the counts: ${pct(iv.low)} to ${pct(iv.high)}` });
+    rows.push({ kind: 'band', text: `${Math.round(iv.confidence * 100)}% interval from the counts${bounds ? `: ${bounds}` : ''}` });
     rows.push({ kind: 'point', text: `Observed: ${pct(iv.point)} ${count(iv.successes, iv.n)}` });
   } else if (census) {
     rows.push({ kind: 'point', text: `Exact count on the whole set: ${pct(census.point)} ${count(census.successes, census.n)}` });
@@ -477,7 +497,7 @@ function interval(v, W, motion) {
   const axisY = 58;
   const H = axisY + 40 + rows.reduce((h, row) => h + 22 + (row.lines.length - 1) * LINE, 0) + 6;
   const claimText = v.from ? `${v.display}, judged from ${v.from}` : v.display;
-  const evidenceText = iv ? `, interval ${pct(iv.low)} to ${pct(iv.high)}, observed ${pct(iv.point)}` : census ? `, exact count ${pct(census.point)} (${census.successes} of ${census.n})` : ', no interval';
+  const evidenceText = iv ? `${bounds ? `, interval ${bounds}` : ''}, observed ${pct(iv.point)}` : census ? `, exact count ${pct(census.point)} (${census.successes} of ${census.n})` : ', no interval';
   const svg = frame(W, H, `Claimed ${claimText} (${verdictText})${evidenceText}`);
   add(svg, 'rect', { x: pad, y: axisY - 7, width: W - pad * 2, height: 14, class: 'v-track' });
   if (iv) {
@@ -529,7 +549,7 @@ function lanes(v, _W, motion) {
     for (const item of items) {
       const chip = document.createElement('span');
       chip.className = `v-chip v-${item.mark}`;
-      chip.innerHTML = `<b aria-hidden="true">${GLYPH[item.mark]}</b>`;
+      chip.append(statusIcon(item.mark));
       chip.append(document.createTextNode(item.label));
       r.append(chip);
     }

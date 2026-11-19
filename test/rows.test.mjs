@@ -6,7 +6,7 @@
 // installed kit predates it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KITS } from '../demos.mjs';
+import { CITATION_TRIALS, progressLabel, reportMarkdown, verdictLabel, KITS } from '../demos.mjs';
 
 const kitOf = (id) => KITS.find((k) => k.id === id);
 const run = async (id, input) => kitOf(id).run(await import(id), structuredClone(input));
@@ -55,7 +55,7 @@ const claimsInput = (claims, now = '2026-10-01', maxAgeDays = '90') => ({ now, m
 
 test('claims registry: day counts read "1 day", not "1 days"', async () => {
   const result = await run('claims-registry-kit', claimsInput([{ id: 'a', text: 'Checked yesterday', evidenceRef: 'tests/a.spec.ts', verifiedAt: '2026-09-30' }]));
-  assert.equal(result.rows[0].detail, 'Checked 1 day ago.');
+  assert.equal(result.rows[0].detail, 'Has an evidence link; reviewed 1 day ago.');
 });
 
 test('claims registry: an overdue claim says how far past the limit it is', async () => {
@@ -87,10 +87,25 @@ test('freshness: the fallback sentence says "1 day", not "1 days"', async () => 
 
 // ------------------------------------------------------------------- trust core
 test('trust core: the source-type row reports the count the kit used, without calling it distinct', async () => {
-  const result = await run('trust-core', kitOf('trust-core').presets[0].input);
+  const result = await run('trust-core', kitOf('trust-core').presets.find((preset) => preset.label === 'Varied reviews').input);
   const row = result.rows[0];
-  assert.match(row.detail, new RegExp(`^${result.raw.sourceCount} source types? counted\\. `));
-  assert.ok(!/distinct/.test(row.detail), row.detail);
+  assert.match(row.title, new RegExp(`^Reviews come from ${result.raw.sourceCount} source types?$`));
+  assert.doesNotMatch(`${row.title} ${row.detail}`, /distinct/);
+  assert.equal(verdictLabel(result), 'No pattern flagged');
+  assert.doesNotMatch(result.rows.map((r) => r.title).join(' '), /real opinions/i);
+});
+
+test('trust core: too little review weight leaves score similarity unchecked', async () => {
+  const kit = kitOf('trust-core');
+  const { now, reviews } = kit.presets[1].input;
+  for (const batch of [reviews.slice(0, 2), reviews.map((review) => ({ ...review, confidence: 0.1 })), []]) {
+    const result = await run(kit.id, { now, reviews: batch });
+    const row = result.rows.find((item) => item.title === 'Score similarity was not checked');
+    assert.equal(row?.mark, 'skip');
+    assert.match(row.detail, /less weight than 3 full-weight reviews/);
+    assert.equal(result.viz.uniformityChecked, false);
+    assert.doesNotMatch(result.headline, /score and source checks flagged no pattern/i);
+  }
 });
 
 // -------------------------------------------------------------------- grounding
@@ -102,11 +117,34 @@ test('grounding: a citation on a sentence with nothing to compare says so', { sk
   assert.equal(result.rows[0].detail, 'Cites e1, but the sentence has no word longer than three characters, so there is nothing to compare.');
 });
 
-test('grounding: unknown and unsupported citations keep their messages', async () => {
+test('grounding: unknown citations and too little overlap have distinct messages', async () => {
   const unknown = await run('grounding-kit', { text: 'Battery life reached 14 hours [[cite:e9]].', evidence: { e1: 'x' } });
   assert.equal(unknown.rows[0].detail, 'Cites e9, which is not in the evidence.');
   const unsupported = await run('grounding-kit', { text: 'Battery life reached 14 hours [[cite:e1]].', evidence: { e1: 'the warranty covers five years of accidental damage' } });
-  assert.equal(unsupported.rows[0].detail, 'Cites e1, but that evidence does not say this.');
+  assert.equal(unsupported.rows[0].detail, 'Cites e1, but there is too little word overlap.');
+});
+
+test('grounding: false claims with word overlap get structural labels and no celebration', async () => {
+  const kit = kitOf('grounding-kit');
+  const evidence = kit.presets[0].input.evidence;
+  const before = await run(kit.id, kit.presets[0].input);
+  const sentences = [
+    'Battery life did not reach 14 hours in independent lab testing [[cite:e1]].',
+    'The product ships with a 900 day return window and a 10 year limited warranty [[cite:e2]].',
+  ];
+  for (const text of sentences) assert.ok(CITATION_TRIALS.some((trial) => trial.text === text));
+  const result = await run(kit.id, { text: sentences.join('\n'), evidence });
+  assert.deepEqual(result.raw.sentences.map((sentence) => sentence.status), ['grounded', 'grounded']);
+  assert.equal(result.tone, 'info', 'lexical overlap is neutral');
+  assert.ok(result.rows.every((row) => row.mark === 'info'));
+  assert.doesNotMatch(reportMarkdown(kit, result), /✓/);
+  assert.deepEqual(result.rows.map((row) => row.label), ['Cited; words overlap with e1', 'Cited; words overlap with e2']);
+  assert.equal(verdictLabel(result), 'No structural problems');
+  assert.equal(result.headline, 'Word overlap only. Read the evidence to judge whether it is true.');
+  const issues = before.rows.filter((row) => row.mark === 'bad' || row.mark === 'warn').length;
+  assert.ok(issues > 0);
+  assert.equal(progressLabel(result, issues, 0), null);
+  assert.doesNotMatch(reportMarkdown(kit, result), /backed|passed|structurally clean|all \d+ fixed/i);
 });
 
 // ---------------------------------------------------------------- corroboration
@@ -125,8 +163,64 @@ test('corroboration: two pages counted as one source say why', { skip: mergeRule
 });
 
 test('corroboration: separate sources get no merge row', async () => {
-  const result = await run('corroboration-kit', kitOf('corroboration-kit').presets[0].input);
+  const result = await run('corroboration-kit', kitOf('corroboration-kit').presets.find((preset) => preset.label === 'Two sources agree').input);
   assert.ok(!titles(result).includes('Counted as one source'));
+});
+
+test('corroboration: the claim and corrective advice sit outside the counted source rows', async () => {
+  const kit = kitOf('corroboration-kit');
+  const input = kit.presets[0].input;
+  const result = await run(kit.id, input);
+  assert.equal(result.quote, input.claim);
+  assert.equal(result.headline, '2 sources contradict the claim.');
+  assert.ok(result.fix);
+  assert.equal(result.rows.filter((row) => row.mark === 'bad').length, result.raw.contradicts);
+  assert.equal(result.counts.find(([, , mark]) => mark === 'bad')[1], result.raw.contradicts);
+  assert.deepEqual(titles(result), input.signals.map((signal) => signal.detail));
+});
+
+test('Claims on your site describes the presence and age of evidence without claiming support', async () => {
+  const kit = kitOf('claims-registry-kit');
+  for (const { input } of kit.presets) {
+    const result = await run(kit.id, input);
+    assert.doesNotMatch(`${kit.question} ${reportMarkdown(kit, result)}`, /\bback(?:ed|s)\b|links and dates checked|links checked/i);
+    if (result.raw.counts.current === result.raw.counts.total) {
+      assert.equal(result.raw.counts.total, 2);
+      assert.equal(verdictLabel(result), 'Evidence links present, dates recent');
+      assert.equal(result.headline, `Both claims point at evidence and were checked within ${input.maxAgeDays} days.`);
+    }
+  }
+});
+
+test('Certainty wording reports matches to a list and uses neutral rows when nothing matches', async () => {
+  const kit = kitOf('provenance-kit');
+  const result = await run(kit.id, kit.presets[1].input);
+  assert.equal(result.raw.length, 0);
+  assert.equal(result.tone, 'info');
+  assert.equal(verdictLabel(result), 'No listed phrase found');
+  assert.deepEqual(result.rows.map(({ mark, label }) => [mark, label]), [
+    ['info', 'No listed phrase found'], ['info', 'No listed phrase found'],
+  ]);
+  assert.doesNotMatch(reportMarkdown(kit, result), /passed|✓/i);
+  for (const preset of kit.presets) {
+    const example = await run(kit.id, preset.input);
+    assert.ok(example.rows.every(({ mark }) => mark !== 'ok'));
+  }
+});
+
+test('Certainty wording explains an unknown source label and how to clear the flags', async () => {
+  const id = 'provenance-kit';
+  const claim = { id: 'price', text: 'Our prices are independently verified.', tier: 'rumor' };
+  const check = (fields) => run(id, { claims: [{ ...claim, ...fields }] });
+  const unknown = await check({});
+  const index = unknown.raw.findIndex(({ reason }) => reason === 'unknown_tier');
+  assert.ok(index >= 0, 'the kit reported an unknown source label');
+  assert.equal(unknown.rows[index].label, 'Unknown source label');
+  assert.match(unknown.rows[index].fix, /verified, modeled or editorial.*sourceRef/);
+  const flagged = await check({ tier: 'modeled' });
+  assert.match(flagged.rows[0].fix, /Remove the flagged phrase.*verified.*sourceRef/);
+  assert.equal((await check({ tier: 'modeled', text: 'We estimate the price.' })).raw.length, 0);
+  assert.equal((await check({ tier: 'verified', sourceRef: 'Price list from the shop' })).raw.length, 0);
 });
 
 // ------------------------------------------------------------ accuracy claims
@@ -135,6 +229,14 @@ const counted = (claim, evidence = {}) => ({
   evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random', ...evidence },
 });
 const accuracy = (display, value) => counted({ metric: 'accuracy', value, display });
+
+test('accuracy: the summary and graphic reuse the suggested statement’s interval bounds', async () => {
+  const result = await run('accuracy-claim-kit', accuracy('99.5%', 0.995));
+  const bounds = result.raw.suggestedStatement.match(/Wilson interval ([\d.]+%) to ([\d.]+%)/).slice(1);
+  assert.ok(result.summary.includes(bounds.join(' to ')), result.summary);
+  assert.deepEqual(result.viz.interval.bounds, bounds);
+  assert.equal(result.statement, result.raw.suggestedStatement);
+});
 
 test('accuracy: a figure above the interval is contradicted and names the top of the interval', async () => {
   const result = await run('accuracy-claim-kit', accuracy('99.5%', 0.995));
@@ -172,7 +274,7 @@ test('accuracy: labels from a model are refused, with no interval, a reason and 
   assert.equal(result.viz.interval, null);
   assert.equal(result.rows[0].mark, 'warn');
   assert.match(result.rows[0].fix, /label/);
-  assert.equal(result.rows.at(-1).title, 'What you can say instead');
+  assert.equal(result.statement, result.raw.suggestedStatement);
 });
 
 test('accuracy: a score that is not a proportion is refused and left off the scale', async () => {
@@ -195,7 +297,7 @@ test('numbers: an untraced number is a bad row that points at it and offers a fi
   assert.equal(row.highlight, '45 days');
   assert.ok(row.title.includes('45 days'));
   assert.match(row.fix, /source/);
-  assert.equal(result.headline, '1 of 3 numbers not found in the evidence.');
+  assert.equal(result.headline, '1 of 3 numbers not found in the source.');
 });
 
 test('numbers: a rounded number says it matches the evidence once rounded', async () => {
@@ -222,8 +324,29 @@ test('numbers: rows that miss the printed total say by how much, and a null tabl
   assert.equal(off.tone, 'fail');
   assert.equal(off.headline, 'The rows do not add up to the printed total.');
   assert.match(off.rows.find((r) => r.mark === 'bad').detail, /sum to 1299\.00.*says 1299\.01.*0\.01 more/);
+  assert.deepEqual(off.counts.filter(([, count, mark]) => count && mark === 'bad'), [['total mismatch', 1, 'bad']]);
+  assert.match(off.reportSummary, /1 total mismatch/);
   const skipped = await run('number-trace-kit', traceInput(2));
   assert.ok(!skipped.rows.some((r) => /rows/.test(r.title)));
+});
+
+test('numbers: marks complete sentences and links only the ones with a matched source', async () => {
+  const result = await run('number-trace-kit', traceInput(0));
+  const [first, second] = result.draft;
+  assert.equal(first.title, 'Total due is $1,299.00, including 8.3% tax.');
+  assert.deepEqual(first.notes.map((note) => note.highlight), ['$1,299.00', '8.3%']);
+  assert.deepEqual(first.notes.map((note) => note.title), ['$1,299.00', '8.3%']);
+  assert.deepEqual(first.sources, [{ id: 'evidence', mark: 'ok' }]);
+  assert.equal(second.title, 'Payment is due in 45 days.');
+  assert.equal(second.mark, 'bad');
+  assert.deepEqual(second.sources, []);
+  assert.equal(result.draft.length, 2);
+  const [total] = result.findings;
+  assert.equal(total.title, 'Totals: the rows add up, 1200.00 + 99.00 = 1299.00');
+  assert.equal(total.field, 'table');
+  assert.ok(!total.quoted);
+  const source = traceInput(0).evidence;
+  assert.deepEqual(result.sourceRanges.map(([start, end]) => source.slice(start, end)).sort(), ['$1,299.00', '(8.25%)']);
 });
 
 test('numbers: an answer with no digits is not called a pass', async () => {
@@ -234,24 +357,28 @@ test('numbers: an answer with no digits is not called a pass', async () => {
 });
 
 // ---------------------------------------------------------------------- parity
-const parityInput = (n) => structuredClone(kitOf('parity-kit').presets[n].input);
+const parityInput = (label) => structuredClone(kitOf('parity-kit').presets.find((preset) => preset.label === label).input);
 
 test('parity: a drifted copy lists what is missing, extra and different, and the date that hides it', async () => {
-  const result = await run('parity-kit', parityInput(0));
+  const result = await run('parity-kit', parityInput('A copy that drifted'));
   assert.equal(result.tone, 'fail');
   assert.deepEqual(titles(result).slice(0, 4), [
     'business is missing from the copy',
     'enterprise is in the copy but not in the source',
-    'team: priceUsd differs',
+    'team: price differs',
     'team: same review date, different data',
   ]);
   assert.equal(result.rows[2].detail, 'The source says 29. The copy says 25.');
-  assert.equal(result.headline, 'The copy has drifted from its source in 3 places.');
-  assert.equal(result.rows.at(-1).mark, 'skip', 'no earlier snapshot, so the date check is said to be skipped');
+  assert.equal(result.headline, 'The copy has drifted from its source in 3 places, and 1 review date hides drift.');
+  assert.equal(result.rows.filter((row) => row.mark === 'bad').length, result.raw.copy.missing.length
+    + result.raw.copy.extra.length + result.raw.copy.changed.length + result.raw.copy.stampHidesDrift.length);
+  assert.deepEqual(result.counts, [['drifted', 3, 'bad'], ['date problem', 1, 'bad']]);
+  assert.equal(result.rows.at(-1).mark, 'skip', 'no earlier copy, so the check for date moves is skipped');
+  assert.equal(result.rows.at(-1).title, 'Date moves not checked');
 });
 
 test('parity: a review date that moved on its own is flagged per record, with the dates', async () => {
-  const result = await run('parity-kit', parityInput(1));
+  const result = await run('parity-kit', parityInput('Dates moved, nothing rechecked'));
   assert.equal(result.tone, 'fail');
   const bad = result.rows.filter((r) => r.mark === 'bad');
   assert.equal(bad.length, 3);
@@ -260,13 +387,13 @@ test('parity: a review date that moved on its own is flagged per record, with th
 });
 
 test('parity: a date that moved alongside a changed value passes', async () => {
-  const result = await run('parity-kit', parityInput(2));
+  const result = await run('parity-kit', parityInput('A copy and dates that hold up'));
   assert.equal(result.tone, 'pass');
   assert.equal(result.raw.dates.stampOnly.length, 0);
 });
 
 test('parity: a misspelled date field is a warning, named once, not a pass', async () => {
-  const input = parityInput(2);
+  const input = parityInput('A copy and dates that hold up');
   input.options.reviewedField = 'lastReviwed';
   const result = await run('parity-kit', input);
   assert.equal(result.tone, 'warn');
@@ -296,15 +423,15 @@ test('K3 numbers: a match that drops a sign or a unit is a qualified match, not 
 });
 
 test('K4 parity: options meant for one check are not sent to the other', async () => {
-  const withNow = parityInput(1);
+  const withNow = parityInput('Dates moved, nothing rechecked');
   withNow.options.now = '2026-11-01T00:00:00Z';
   const a = await run('parity-kit', withNow);
   assert.equal(a.tone, 'fail', 'the date check still runs and flags the moved dates');
-  const withTolerance = parityInput(1);
+  const withTolerance = parityInput('Dates moved, nothing rechecked');
   withTolerance.options.numberTolerance = 0;
   const b = await run('parity-kit', withTolerance);
   assert.equal(b.tone, 'fail');
-  const misspelled = parityInput(1);
+  const misspelled = parityInput('Dates moved, nothing rechecked');
   misspelled.options.nowe = '2026-11-01T00:00:00Z';
   await assert.rejects(run('parity-kit', misspelled), /unknown option/, 'an unknown option still reaches the kit and is refused');
 });
@@ -337,19 +464,19 @@ test('K6 accuracy: an exact count on a complete set is a result, not missing evi
 
 test('K8 numbers: the sum row shows the amounts the kit added, and a tolerance match is not called exact', async () => {
   const minor = await run('number-trace-kit', { ...traceInput(1), table: { rows: [{ label: 'Subtotal', amount: 200 }, { label: 'Tax', amount: 99 }], total: '2.99' } });
-  const row = minor.rows.find((r) => /printed total/.test(r.title));
-  assert.equal(row.detail, '2.00 + 0.99 = 2.99.');
+  const row = minor.rows.find((r) => r.field === 'table');
+  assert.equal(row.title, 'Totals: the rows add up, 2.00 + 0.99 = 2.99');
   const near = await run('number-trace-kit', { ...traceInput(1), table: { rows: [{ label: 'Subtotal', amount: '2.00' }, { label: 'Tax', amount: '0.99' }], total: '3.00', tolerance: '0.01' } });
   assert.equal(near.raw.reconcile.ok, true);
-  const nearRow = near.rows.find((r) => /printed total/.test(r.title));
+  const nearRow = near.rows.find((r) => r.field === 'table');
   assert.doesNotMatch(nearRow.detail, /=/);
   assert.match(nearRow.detail, /2\.99.*3\.00.*0\.01/);
   assert.match(nearRow.title, /tolerance/);
-  assert.match(near.headline, /tolerance/);
+  assert.match(near.headline, /within the allowed difference/);
 });
 
 test('K9 parity: the headline names the actual cause, a duplicate id or a date moved earlier', async () => {
-  const dup = parityInput(2);
+  const dup = parityInput('A copy and dates that hold up');
   dup.copy.push({ ...dup.copy[0] });
   dup.earlier = [];
   const d = await run('parity-kit', dup);
@@ -357,7 +484,7 @@ test('K9 parity: the headline names the actual cause, a duplicate id or a date m
   assert.doesNotMatch(d.headline, /0 places/);
   assert.match(d.headline, /more than once/);
   assert.equal(d.rows.find((r) => /more than once/.test(r.title)).mark, 'bad', 'a flagged duplicate is a problem row');
-  const back = parityInput(2);
+  const back = parityInput('A copy and dates that hold up');
   back.earlier = back.source.map((r) => ({ ...r, lastReviewed: '2026-12-01' }));
   const b = await run('parity-kit', back);
   assert.equal(b.raw.dates.backward.length, 3);
@@ -404,7 +531,7 @@ test('R3 accuracy: an exact count is described as consistent with a bound or ran
 });
 
 test('R4 parity: the headline counts each repeated id once, however many places repeat it', async () => {
-  const input = parityInput(2);
+  const input = parityInput('A copy and dates that hold up');
   input.source.push({ ...input.source[0] });
   input.copy.push({ ...input.copy[0] });
   input.earlier = [];
@@ -422,24 +549,42 @@ test('R5 parity: separate bulk review dates are not reported as one date', async
   assert.equal(result.raw.dates.stampOnly.length, 0);
   assert.doesNotMatch(result.headline, /one review date/, result.headline);
   assert.match(result.headline, /4 records moved in bulk to 2 review dates/, result.headline);
+  assert.deepEqual(result.counts, [['records with dates moved together', 4, 'bad']]);
   const one = await run('parity-kit', { source: source.map((r) => ({ ...r, lastReviewed: '2026-10-01' })), copy: source.map((r) => ({ ...r, lastReviewed: '2026-10-01' })), earlier, options: { reviewedField: 'lastReviewed', sourceFields: ['source'], bulkThreshold: 1 } });
   assert.equal(one.raw.dates.bulkBump.length, 1);
   assert.match(one.headline, /4 records moved to one review date at once/, one.headline);
+  assert.deepEqual(one.counts, [['records with dates moved together', 4, 'bad']]);
 });
 
-test('R1 follow-up: when the kit text rounds a near-perfect rate to 100.00%, the playground notes the exact rate', async () => {
+test('Tamper-evident log uses human entry numbers and attributes the previous amount to the example', async () => {
+  const kit = kitOf('audit-chain-kit');
+  const input = kit.presets[0].input;
+  const changed = await run(kit.id, input);
+  assert.equal(changed.raw.brokenAtIndex, 1);
+  assert.equal(changed.headline, 'Simulated tampering detected at entry 2.');
+  assert.match(changed.rows[1].title, /^Entry 2:/);
+  assert.equal(changed.rows[1].detail, 'This entry no longer matches its recorded hash. This example changed the amount from 40 to 400.');
+  assert.equal(changed.rows[2].detail, 'The check stopped at entry 2.');
+  const deleted = await run(kit.id, { ...input, tamper: 'Delete the last entry' });
+  assert.equal(deleted.rows.at(-1).title, 'Entry 3 is missing');
+  assert.equal(deleted.headline, 'Simulated tampering detected at entry 3.');
+});
+
+test('Accuracy rows and the suggested statement show the kit’s exact rate', async () => {
   const plain = await run('accuracy-claim-kit', nearPerfect({ value: 0.99999999 }));
-  const note = plain.rows.find((row) => row.title === 'The kit rounds this rate to 100.00%');
-  assert.ok(note, 'the note is shown');
-  assert.match(note.detail, /99\.999999%/);
+  assert.match(plain.raw.explanation[0], /99\.999999%/);
+  assert.equal(plain.rows[0].detail, plain.raw.explanation[0]);
+  assert.match(plain.raw.suggestedStatement, /99\.999999% accuracy/);
+  assert.equal(plain.statement, plain.raw.suggestedStatement);
+  assert.doesNotMatch(plain.rows.map((row) => `${row.title} ${row.detail}`).join(' '), /100\.00%/);
   const ordinary = await run('accuracy-claim-kit', counted({ metric: 'accuracy', value: 0.98 }));
-  assert.equal(ordinary.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false, 'ordinary rates get no note');
+  assert.doesNotMatch(ordinary.rows.map((row) => `${row.title} ${row.detail}`).join(' '), /100\.00%/);
 });
 
-test('R1 follow-up: a 100.00% quoted in the claim text does not trigger the rounding note', async () => {
+test('Accuracy rows never give a perfect result just because the claim text quotes one', async () => {
   const quoted = await run('accuracy-claim-kit', {
     claim: { metric: 'accuracy', value: 0.98, text: 'Scores 100.00% on BenchX' },
     evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
   });
-  assert.equal(quoted.rows.some((row) => row.title === 'The kit rounds this rate to 100.00%'), false);
+  assert.doesNotMatch(quoted.rows.map((row) => `${row.title} ${row.detail}`).join(' '), /100\.00%/);
 });
