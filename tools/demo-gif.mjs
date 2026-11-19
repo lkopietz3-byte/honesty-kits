@@ -1,6 +1,6 @@
-// Records docs/demo.gif from the playground: a draft with a bad citation, the
-// fix bringing the live tally down to "All fixed", a ranking that moves with
-// payout, and the generated CI code. Frames are screenshots; holds become GIF
+// Records docs/demo.gif from the playground: a number the AI made up, the
+// draft fixed, Citations showing a contradiction that still passes its
+// word-overlap check, and the generated CI code. Frames are screenshots; holds become GIF
 // frame delays, so only the animated moments need many frames.
 //
 //   node tools/demo-gif.mjs [--url https://lkopietz3-byte.github.io/honesty-kits/] [--playwright-root /path/to/playwright]
@@ -17,8 +17,8 @@ const pw = args['--playwright-root']
   ? await import(pathToFileURL(path.join(args['--playwright-root'], 'index.mjs')).href)
   : await import('playwright');
 const url = args['--url'] ?? 'https://lkopietz3-byte.github.io/honesty-kits/';
-const W = 1200, H = 675;
-const SCALE = 0.75; // output 900x506, small enough for a README
+const W = 1200, H = 800;
+const SCALE = 0.75; // keep the resulting GIF small enough for the README
 const OW = Math.round(W * SCALE), OH = Math.round(H * SCALE);
 
 /** Bilinear downscale of an RGBA buffer. */
@@ -60,25 +60,30 @@ async function edit(selector, from, to) {
   await page.fill(selector, value.replace(from, to));
 }
 
-await page.goto(`${url}#grounding-kit`);
-await page.waitForSelector('#result .viz-threads');
+// 1. The default check catches a number that is not in the source.
+await page.goto(`${url}#number-trace-kit`);
+await page.waitForSelector('#result .rows');
 await page.waitForTimeout(150);
 await motion(1300);
-await hold(2600);
-await edit('#f-grounding-kit-text', 'The warranty covers accidental damage for five years [[cite:e2]].', 'It comes with a 1 year limited warranty [[cite:e2]].');
-await page.waitForTimeout(320);
-await motion(1100);
-await hold(2000);
-await edit('#f-grounding-kit-text', 'Some reviewers say the app drains battery overnight.', 'Some reviewers say the app drains battery overnight [citation needed].');
+await hold(3000);
+// 2. Fix the draft: drop the invented number, and the check passes.
+await page.click('#edit-draft');
+await edit('#f-number-trace-kit-output', 'Payment is due in 45 days.', 'Payment terms are in your account.');
+await page.getByRole('button', { name: 'Check it' }).click();
 await page.waitForTimeout(320);
 await motion(1100);
 await hold(2400);
-await page.click('#nav-payout-invariance-kit');
-await page.waitForSelector('#result .viz-slope');
-await page.locator('#examples .chip').nth(1).click();
-await page.waitForTimeout(80);
-await motion(1900);
-await hold(2800);
+// 3. Citations is honest about its limit: a sentence that contradicts its source still passes, and the page says so.
+await page.goto(`${url}#grounding-kit`);
+await page.waitForSelector('#result .rows');
+await page.waitForTimeout(150);
+await hold(1800);
+await page.click('#trial-0');
+await page.waitForSelector('.trial-callout');
+await page.waitForTimeout(150);
+await motion(900);
+await hold(3400);
+// 4. The same check as code for CI.
 await page.click('#view-code');
 await page.waitForTimeout(150);
 await hold(3000);
