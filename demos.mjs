@@ -1,5 +1,5 @@
 // One demo per kit. Each demo receives the kit's real published module (loaded
-// from the site or jsDelivr in the browser, from node_modules in tests) and the user's
+// from the site in the browser and from node_modules in tests) and the user's
 // edited input, calls the kit's own exports, and returns a plain result:
 //
 //   { tone: 'pass' | 'fail' | 'warn' | 'info', headline, summary?, rows, viz?, raw }
@@ -11,6 +11,13 @@
 // Nothing here re-implements a kit's logic; it only arranges the output.
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const ratePercent = (bps) => `${(bps / 100).toFixed(2)}%`;
+const parityFieldLabels = new Map([['priceUsd', 'price'], ['lastReviewed', 'review date']]);
+const receiptFactLabels = new Map([['cartItemCount', 'items in cart'], ['couponApplied', 'coupon applied']]);
+const receiptActionLabels = new Map([['log-in', 'sign in'], ['add-to-cart', 'add items to the cart'], ['submit-payment', 'send a payment']]);
+const parityFieldLabel = (key) => parityFieldLabels.get(key) ?? key;
+const receiptFactLabel = (key) => receiptFactLabels.get(key) ?? key;
+const receiptActionLabel = (key) => receiptActionLabels.get(key) ?? key;
 
 /**
  * A proportion as a percent with at least `digits` decimals, and more when fewer would
@@ -25,6 +32,11 @@ const percentDigits = (x, digits) => {
 };
 
 const EVIDENCE_CLAIM_REFUSAL = 'Put the figure in the claim field, not inside the evidence. The evidence holds the counts, who labeled and how items were picked.';
+function accuracyExplanation(line) {
+  // The claim's wording has not been judged. Keep its numbers in the raw result.
+  return line.replace(/^claim\.text says .*?, which is not the figure judged /,
+    'The wording states a different figure from the figure judged ');
+}
 const clip = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 /**
  * How long ago a stale claim was checked, set against its limit. Newer claims-registry
@@ -134,6 +146,53 @@ function source(fn) {
 const scenariosSource = () =>
   `[\n${PAYOUT_SCENARIOS.map((sc) => `  { name: ${JSON.stringify(sc.name)}, mutate: ${source(sc.mutate).replace(/\n/g, '\n  ')} },`).join('\n')}\n]`;
 
+export const DEFAULT_KIT = 'number-trace-kit';
+
+export const CITATION_TRIALS = [
+  { label: 'Deny the claim', source: 'e1', situation: 'An AI assistant flips the conclusion of a battery test.', text: 'Battery life did not reach 14 hours in independent lab testing [[cite:e1]].' },
+  { label: 'Change the numbers', source: 'e2', situation: 'An AI assistant changes the return window and warranty length.', text: 'The product ships with a 900 day return window and a 10 year limited warranty [[cite:e2]].' },
+];
+
+const sentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+const markPriority = ['bad', 'warn', 'info', 'ok', 'skip'];
+
+function numberDraft(output, rows) {
+  const ordered = [...rows].sort((a, b) => a.offset - b.offset);
+  let cursor = 0;
+  const sentences = [];
+  for (const { segment, index } of sentenceSegmenter.segment(output)) {
+    const notes = [];
+    while (cursor < ordered.length && ordered[cursor].offset < index + segment.length) {
+      const note = ordered[cursor++];
+      notes.push({ ...note, title: note.highlight });
+    }
+    if (!segment.trim()) continue;
+    const sourceMarks = notes.filter((note) => note.fromSource).map((note) => note.mark);
+    const sourceMark = markPriority.find((mark) => sourceMarks.includes(mark));
+    sentences.push({
+      title: segment.trim(),
+      quoted: true,
+      mark: markPriority.find((mark) => notes.some((note) => note.mark === mark)) ?? 'skip',
+      notes: notes.length ? notes : [{ mark: 'skip', detail: 'No number checked in this sentence.' }],
+      sources: sourceMark ? [{ id: 'evidence', mark: sourceMark }] : [],
+    });
+  }
+  return sentences;
+}
+
+export function verdictLabel(result) {
+  return result.stamp ?? {
+    pass: 'Passed', fail: 'Problems found', warn: 'Worth a look', info: 'Not enough to say',
+    error: 'Input rejected', offline: 'Could not load', loading: 'Loading',
+  }[result.tone];
+}
+
+export function progressLabel(result, before, after) {
+  if (result.trackProgress === false || before === after) return null;
+  if (after > before) return `Up from ${before} to ${after}`;
+  return after === 0 ? `${plural(before, 'problem')} fixed` : `Down from ${before} to ${after}`;
+}
+
 export const KITS = [
   // ---------------------------------------------------------------- grounding
   {
@@ -141,8 +200,11 @@ export const KITS = [
     version: '0.3.0',
     group: GROUPS[0],
     name: 'Citations',
-    question: 'Does each sentence cite evidence that actually says it?',
-    limit: 'Checks citation structure and wording overlap. It does not decide whether the evidence itself is true.',
+    question: 'Does each sentence carry a citation that points at matching evidence?',
+    catches: 'Catch missing and mismatched citations.',
+    benchmark: 'readme',
+    draftKey: 'text',
+    limit: 'Checks citation structure and word overlap. It cannot tell whether the words mean the same thing or whether a claim is true.',
     fields: [
       { key: 'text', label: 'Text your AI wrote', kind: 'text', rows: 6 },
       { key: 'evidence', label: 'Evidence it was given (id → text)', kind: 'json', rows: 6 },
@@ -150,6 +212,7 @@ export const KITS = [
     presets: [
       {
         label: 'A draft with problems',
+        situation: 'An AI assistant drafts a product review from a lab test and warranty terms.',
         input: {
           text:
             'Battery life reached 14 hours in independent lab testing [[cite:e1]].\n' +
@@ -163,7 +226,8 @@ export const KITS = [
         },
       },
       {
-        label: 'A clean draft',
+        label: 'Every sentence cited',
+        situation: 'An AI assistant summarizes a battery test and the return policy for shoppers.',
         input: {
           text:
             'Battery life reached 14 hours in independent lab testing [[cite:e1]].\n' +
@@ -178,15 +242,16 @@ export const KITS = [
     run(kit, input) {
       const result = kit.classifyDocument(input.text, input.evidence);
       const look = {
-        grounded: ['ok', 'Backed by its citation', null],
+        grounded: ['info', 'Cited', null],
         placeholder: ['info', 'Honestly marked as needing a source', 'Find a source before publishing, or keep the gap visible to readers.'],
         ungrounded: ['warn', 'Makes a claim with no citation', 'Cite the evidence that supports it, or mark it [citation needed].'],
-        invalid: ['bad', 'Bad citation', 'Point the citation at evidence that says this, or rewrite the sentence to match the evidence.'],
+        invalid: ['bad', 'Bad citation', 'Check the source yourself, then cite the intended source or revise the sentence.'],
       };
       const known = new Set(Object.keys(input.evidence));
       const rows = result.sentences.map((s) => {
         const [mark, why, fix] = look[s.status] ?? ['info', s.status, null];
         let detail = `${why}.${s.citedIds.length ? ` Cites ${s.citedIds.join(', ')}.` : ''}`;
+        if (s.status === 'grounded') detail = `Cited; words overlap with ${s.validIds.join(', ')}`;
         if (s.status === 'invalid') {
           // Newer releases say why each citation failed; older ones only say that it did.
           const reason = (id) => s.reasons?.[id] ?? (known.has(id) ? 'not-supported' : 'unknown-id');
@@ -196,22 +261,30 @@ export const KITS = [
           if (missing.length) parts.push(`Cites ${missing.join(', ')}, which ${missing.length === 1 ? 'is' : 'are'} not in the evidence.`);
           if (notText.length) parts.push(`The evidence for ${notText.join(', ')} is not text.`);
           if (thin.length) parts.push(`Cites ${thin.join(', ')}, but the sentence has no word longer than three characters, so there is nothing to compare.`);
-          if (rest.length || !parts.length) parts.push(`Cites ${(rest.length ? rest : s.citedIds).join(', ')}, but that evidence does not say this.`);
+          if (rest.length || !parts.length) parts.push(`Cites ${(rest.length ? rest : s.citedIds).join(', ')}, but there is too little word overlap.`);
           detail = parts.join(' ');
         }
-        return { mark, title: clip(s.sentence), detail, fix };
+        return { mark, label: s.status === 'grounded' ? detail : why, title: s.sentence, quoted: true, detail, fix };
       });
       const { grounded, placeholder, ungrounded, invalid } = result.counts;
-      const tone = invalid > 0 ? 'fail' : ungrounded > 0 ? 'warn' : 'pass';
+      const tone = invalid > 0 ? 'fail' : ungrounded > 0 ? 'warn' : 'info';
       const headline = result.isClean
-        ? `Structurally clean: ${plural(result.sentences.length, 'sentence')} checked, ${plural(placeholder, 'honest gap')}.`
+        ? 'Word overlap only. Read the evidence to judge whether it is true.'
         : `Not ready to ship: ${plural(invalid, 'bad citation')}, ${plural(ungrounded, 'uncited claim')}.`;
       const viz = {
         type: 'threads',
         sentences: result.sentences.map((s) => ({ status: s.status, citedIds: s.citedIds, validIds: s.validIds })),
         evidenceIds: Object.keys(input.evidence),
       };
-      return { tone, headline, summary: `${grounded} backed · ${placeholder} marked · ${ungrounded} uncited · ${invalid} bad`, rows, viz, raw: result };
+      return {
+        tone,
+        headline,
+        stamp: result.isClean ? 'No structural problems' : undefined,
+        trackProgress: false,
+        counts: [['cited', grounded, 'info'], ['marked', placeholder, 'info'], ['uncited', ungrounded, 'warn'], [invalid === 1 ? 'bad citation' : 'bad citations', invalid, 'bad']],
+        reportSummary: `${grounded} cited · ${placeholder} marked · ${ungrounded} uncited · ${plural(invalid, 'bad citation')}`,
+        rows, viz, raw: result,
+      };
     },
     snippet: (input) => `import { classifyDocument } from 'grounding-kit';
 
@@ -234,11 +307,16 @@ if (!result.isClean) process.exitCode = 1;
     group: GROUPS[0],
     name: 'Certainty wording',
     question: 'Does the copy sound more certain than its source allows?',
+    catches: 'Catch wording that overstates certainty.',
+    benchmark: 'strict-mode-for-ci',
+    draftKey: 'claims',
+    inputGuide: 'Source labels: Verified means checked against a source. Modeled means an estimate. Editorial means an opinion.',
     limit: 'Matches a starter list of phrases you can extend. It is a wording check, not a fact check.',
-    fields: [{ key: 'claims', label: 'Claims, each tagged with where it came from', kind: 'json', rows: 13 }],
+    fields: [{ key: 'claims', label: 'Claims and their sources', kind: 'json', rows: 13 }],
     presets: [
       {
         label: 'Marketing copy',
+        situation: 'A shopping site writes about how it rates products and checks prices.',
         input: {
           claims: [
             { id: 'ratings', text: 'Our ratings are independently verified.', tier: 'modeled' },
@@ -250,6 +328,7 @@ if (!result.isClean) process.exitCode = 1;
       },
       {
         label: 'Carefully worded copy',
+        situation: 'A shop reports a price check and estimates delivery time.',
         input: {
           claims: [
             { id: 'prices', text: 'Prices were checked this morning.', tier: 'verified', sourceRef: 'retailer feed, 2026-10-01 06:00 UTC' },
@@ -261,22 +340,37 @@ if (!result.isClean) process.exitCode = 1;
     run(kit, input) {
       const offenses = kit.validateClaims(input.claims);
       const fixes = {
-        certainty_phrase_without_backing_tier: 'Soften the wording (for example “we estimate”) or move the claim to a tier that backs it.',
-        missing_source_ref: 'Add a sourceRef that says what the claim was checked against.',
-        unrecognized_tier: 'Tag the claim as verified, modeled or editorial.',
+        certainty_phrase_without_backing_tier: 'Remove the flagged phrase. If someone checked the claim, set its source label (tier) to verified and put the source in the sourceRef field.',
+        missing_source_ref: 'Put the name or link of what you checked against in the sourceRef field.',
+        unknown_tier: 'Set the source label (tier) to verified, modeled or editorial. If you choose verified, also name the source in the sourceRef field.',
       };
+      const labels = {
+        certainty_phrase_without_backing_tier: 'Wording overstates certainty',
+        missing_source_ref: 'Source missing',
+        unknown_tier: 'Unknown source label',
+      };
+      const clean = 'No listed phrase found';
       const flagged = new Set(offenses.map((o) => o.claimId));
       const rows = [
-        ...offenses.map((o) => ({ mark: 'bad', title: clip(o.claimText), detail: o.message, fix: fixes[o.reason] ?? 'Reword the claim or back it with a source.', highlight: o.phrase ?? null })),
+        ...offenses.map((o) => ({
+          mark: 'bad', title: clip(o.claimText), quoted: true, highlight: o.phrase ?? null,
+          label: labels[o.reason],
+          detail: {
+            missing_source_ref: 'The claim is labeled verified but names no source.',
+            certainty_phrase_without_backing_tier: `“${o.phrase}” signals more certainty than the source label allows.`,
+            unknown_tier: 'The source label is missing or unrecognized.',
+          }[o.reason] ?? o.message,
+          fix: fixes[o.reason] ?? 'Reword the claim or name its source.',
+        })),
         ...input.claims
           .filter((c) => c && !flagged.has(c.id))
-          .map((c) => ({ mark: 'ok', title: clip(String(c.text)), detail: `No wording problem for a “${c.tier}” claim.` })),
+          .map((c) => ({ mark: 'info', title: clip(String(c.text)), quoted: true, label: clean, detail: `${clean}.` })),
       ];
-      const tone = offenses.length ? 'fail' : 'pass';
+      const tone = offenses.length ? 'fail' : 'info';
       const headline = offenses.length
         ? `${plural(offenses.length, 'wording problem')} across ${plural(input.claims.length, 'claim')}.`
-        : `No wording problems found in ${plural(input.claims.length, 'claim')} under these rules.`;
-      return { tone, headline, rows, raw: offenses };
+        : input.claims.length ? `${plural(input.claims.length, 'claim')} checked against the phrase list.` : 'Add a claim to check.';
+      return { tone, headline, stamp: offenses.length ? undefined : input.claims.length ? clean : 'No claims to check', rows, raw: offenses };
     },
     snippet: (input) => `import { validateClaims } from 'provenance-kit';
 
@@ -298,16 +392,21 @@ if (offenses.length > 0) process.exitCode = 1;
     group: GROUPS[0],
     name: 'Numbers',
     question: 'Does every number in an AI answer appear in the evidence it was given?',
+    catches: 'Catch numbers that changed or lack a source.',
+    benchmark: 'accuracy-on-real-data',
+    draftKey: 'output',
     limit: 'Checks that a number is present in the evidence, not that it is true or sits in the right sentence. Numbers written as words are not read.',
     fields: [
-      { key: 'evidence', label: 'Evidence the AI was given', kind: 'text', rows: 4 },
-      { key: 'output', label: 'What the AI wrote', kind: 'text', rows: 4 },
+      { key: 'output', label: 'Paste what your AI wrote', kind: 'text', rows: 3 },
+      { key: 'evidence', label: 'Paste the source it was given', kind: 'text', rows: 3 },
       { key: 'table', label: 'Rows that should add up to a printed total (null skips this)', kind: 'json', rows: 9 },
-      { key: 'mode', label: 'Matching (report also allows sums, differences and percent changes)', kind: 'choice', options: ['strict', 'report'] },
+      { key: 'mode', label: 'How to match numbers', kind: 'choice', options: ['strict', 'report'],
+        optionLabels: { strict: 'Match numbers in the source', report: 'Also check calculations from the source' } },
     ],
     presets: [
       {
         label: 'An invented number',
+        situation: 'An AI assistant answers a customer’s question about an invoice.',
         input: {
           evidence: 'Subtotal $1,200.00. Tax (8.25%) $99.00. Total due $1,299.00.',
           output: 'Total due is $1,299.00, including 8.3% tax. Payment is due in 45 days.',
@@ -317,6 +416,7 @@ if (offenses.length > 0) process.exitCode = 1;
       },
       {
         label: 'Numbers that trace',
+        situation: 'An AI assistant repeats an invoice total and rounds its tax rate.',
         input: {
           evidence: 'Subtotal $1,200.00. Tax (8.25%) $99.00. Total due $1,299.00.',
           output: 'Total due is $1,299.00, including 8.3% tax.',
@@ -326,6 +426,7 @@ if (offenses.length > 0) process.exitCode = 1;
       },
       {
         label: 'A figure built from two others',
+        situation: 'An AI assistant compares this quarter’s total with last quarter’s.',
         input: {
           evidence: 'Last quarter the total was $1,000.00. This quarter the total is $1,299.00.',
           output: 'The total is $1,299.00, up 30% from last quarter.',
@@ -335,6 +436,7 @@ if (offenses.length > 0) process.exitCode = 1;
       },
       {
         label: 'Rows that do not add up',
+        situation: 'An AI assistant repeats the total printed on an invoice.',
         input: {
           evidence: 'Subtotal $1,200.00. Tax $99.00. Total due $1,299.01.',
           output: 'Total due is $1,299.01, the subtotal plus tax.',
@@ -380,7 +482,7 @@ if (offenses.length > 0) process.exitCode = 1;
       };
       for (const n of result.numbers) {
         const title = around(n.token.start, n.token.end);
-        const base = { title, highlight: n.token.raw };
+        const base = { title, highlight: n.token.raw, offset: n.token.start, fromSource: Boolean(n.evidence.length || n.derivation?.operands.length) };
         const found = n.evidence[0] ? quote(n.evidence[0].raw) : 'the evidence';
         const q = qualified(n);
         const flag = (mark, detail) => (q ? { ...base, mark: q.mark, detail: `${detail}${q.note}`, fix: q.fix } : { ...base, mark, detail });
@@ -391,16 +493,19 @@ if (offenses.length > 0) process.exitCode = 1;
           rows.push(flag('info', `Not stated in the evidence. It matches the ${KIND[d.kind] ?? d.kind} of ${d.operands.map((o) => quote(o.raw)).join(' and ')}${d.exact ? '' : ', to the digits shown'}.`));
         } else if (n.status === 'untraced') {
           const near = (n.nearMisses ?? []).map((m) => `The evidence has ${quote(m.evidence.raw)} with a different ${NEAR[m.reason] ?? 'form'}.`).join(' ');
-          rows.push({ ...base, mark: 'bad', detail: `Not in the evidence. ${near}`.trim(), fix: 'Remove the number, or give the AI the source that states it.' });
+          rows.push({ ...base, mark: 'bad', detail: `Not in the evidence. ${near}`.trim(), fix: 'Remove the number, or add the source that states it to the evidence, then check again.' });
         } else if (n.status === 'unknown') {
           rows.push({ ...base, mark: 'warn', detail: `The kit could not decide${n.reason ? `: ${n.reason.replace(/-/g, ' ')}` : ''}.`, fix: 'Have a person check this number against its source.' });
         }
       }
+      const numberRows = [...rows];
       for (const s of result.skipped) {
         if (s.reason === 'ignored') continue;
         const holds = s.reason === 'unread-glued-form' || s.reason === 'not-in-evidence';
         const why = { identifier: 'It looks like a name or code, not a quantity.', 'in-evidence': 'The evidence writes it the same way.', 'unread-glued-form': 'It is glued to letters the kit does not read.', 'not-in-evidence': 'It looks like a code that the evidence does not contain.' }[s.reason];
-        rows.push({ mark: holds ? 'warn' : 'skip', title: `${around(s.start, s.end)}`, highlight: s.raw, detail: `Not read as a number. ${why}`, fix: holds ? 'Have a person check this one.' : undefined });
+        const row = { mark: holds ? 'warn' : 'skip', title: around(s.start, s.end), highlight: s.raw, offset: s.start, detail: `Not read as a number. ${why}`, fix: holds ? 'Have a person check this one.' : undefined };
+        rows.push(row);
+        numberRows.push(row);
       }
       // The kit reads an integer amount as minor units (200 is 2.00), so show each row as the
       // kit read it, from the kit itself, not as typed.
@@ -409,11 +514,11 @@ if (offenses.length > 0) process.exitCode = 1;
         const parts = input.table.rows.map((r) => kit.reconcile({ rows: [r], total: r.amount }).sum).join(' + ');
         const gap = sum.difference.replace(/^-/, '');
         const side = sum.difference.startsWith('-') ? 'more' : 'less';
-        if (sum.ok && exact) rows.push({ mark: 'ok', title: 'The rows add up to the printed total', detail: `${parts} = ${sum.sum}.` });
-        else if (sum.ok) rows.push({ mark: 'ok', title: 'The rows match the printed total within the tolerance', detail: `${parts} comes to ${sum.sum}. The total says ${sum.total}, ${gap} ${side}, inside the ${sum.tolerance} tolerance you allowed.` });
+        if (sum.ok && exact) rows.push({ mark: 'ok', title: `Totals: the rows add up, ${parts || '0'} = ${sum.sum}`, field: 'table' });
+        else if (sum.ok) rows.push({ mark: 'ok', title: 'Totals: the rows match within the tolerance', field: 'table', detail: `${parts} comes to ${sum.sum}. The total says ${sum.total}, ${gap} ${side}, inside the ${sum.tolerance} tolerance you allowed.` });
         else {
           const allowed = Number(sum.tolerance) === 0 ? '' : ` That is outside the ${sum.tolerance} tolerance you allowed.`;
-          rows.push({ mark: 'bad', title: 'The rows do not add up to the printed total', detail: `The rows (${parts}) sum to ${sum.sum}, but the total says ${sum.total}, which is ${gap} ${side}.${allowed}`, fix: 'Correct the total or the row that is wrong.' });
+          rows.push({ mark: 'bad', title: 'Totals: the rows do not add up to the printed total', field: 'table', detail: `The rows (${parts}) sum to ${sum.sum}, but the total says ${sum.total}, which is ${gap} ${side}.${allowed}`, fix: 'Correct the total or the row that is wrong.' });
         }
       }
       const { counts } = result;
@@ -421,21 +526,33 @@ if (offenses.length > 0) process.exitCode = 1;
       const flagged = result.numbers.filter((n) => n.signDiffers || n.unitUnverified).length;
       if (!found) rows.unshift({ mark: 'info', title: 'No numbers to check', detail: 'The answer has no digits the kit reads. Numbers written as words are not read.' });
       const bits = [];
-      if (counts.untraced) bits.push(`${counts.untraced} of ${plural(found, 'number')} not found in the evidence`);
+      if (counts.untraced) bits.push(`${counts.untraced} of ${plural(found, 'number')} not found in the source`);
       if (sum && !sum.ok) bits.push('the rows do not add up to the printed total');
       const tone = bits.length ? 'fail' : result.verdict === 'unknown' || flagged ? 'warn' : found ? 'pass' : 'info';
       const headline = bits.length
         ? `${bits.join(', and ')}.`.replace(/^./, (c) => c.toUpperCase())
         : result.verdict === 'unknown' ? 'Some numbers could not be read or decided, so a person should look.'
         : flagged ? `${plural(flagged, 'number')} ${flagged === 1 ? 'matches' : 'match'} the evidence only with a different sign or a unit on one side, so a person should look.`
-        : found ? `All ${plural(found, 'number')} ${counts.derived ? 'are stated in the evidence or built from it' : 'trace to the evidence'}${sum ? (exact ? ', and the rows add up' : ', and the rows match the printed total within the tolerance') : ''}.`
+        : found ? `${found === 1 ? 'The number' : found === 2 ? 'Both numbers' : `All ${found} numbers`} ${counts.derived ? `${found === 1 ? 'is' : 'are'} stated in the evidence or built from it` : `trace${found === 1 ? 's' : ''} to the source`}${sum ? (exact ? ', and the rows add up' : ', and the rows match the printed total within the allowed difference') : ''}.`
         : 'No numbers found in the answer.';
       const extra = [counts.signDiffers ? `${counts.signDiffers} with a different sign` : '', counts.unitUnverified ? `${counts.unitUnverified} with a unit on one side only` : ''].filter(Boolean);
       return {
         tone,
         headline,
-        summary: `${counts.traced} traced, ${counts.rounded} rounded, ${counts.derived} derived, ${counts.untraced} untraced, ${counts.unknown} unknown${extra.length ? ` (${extra.join(', ')})` : ''}.`,
+        counts: [
+          ['found in the source', counts.traced, 'ok'], ['rounded', counts.rounded, 'ok'], ['worked out', counts.derived, 'info'],
+          ['not in the source', counts.untraced, 'bad'],
+          ...(counts.unknown ? [['unknown', counts.unknown, 'warn']] : []),
+          ...(flagged ? [['qualified', flagged, 'warn']] : []),
+          ...(sum && !sum.ok ? [['total mismatch', 1, 'bad']] : []),
+        ],
+        reportSummary: `${counts.traced} found in the source, ${counts.rounded} rounded, ${counts.derived} worked out, ${counts.untraced} not in the source${counts.unknown ? `, ${counts.unknown} unknown` : ''}${extra.length ? ` (${extra.join(', ')})` : ''}${sum && !sum.ok ? ', 1 total mismatch' : ''}.`,
         rows,
+        draft: numberDraft(output, numberRows),
+        findings: rows.filter((row) => row.offset === undefined),
+        sourceRanges: result.numbers.filter((n) => n.status === 'traced' || n.status === 'rounded')
+          .filter((n) => !n.signDiffers && !n.unitUnverified)
+          .flatMap((n) => n.evidence.map(({ start, end }) => [start, end])),
         raw: { trace: result, reconcile: sum },
       };
     },
@@ -467,36 +584,45 @@ if (result.verdict !== 'clean' || qualified > 0${input.table == null ? '' : ' ||
     version: '0.3.0',
     group: GROUPS[0],
     name: 'Evidence strength',
-    question: 'How strong is the evidence for a claim, and which way does it point?',
+    question: 'Do the sources you looked at agree with the claim?',
+    catches: 'See whether sources agree.',
     limit: 'Counts the sources you name. It cannot tell whether different sources are really independent.',
     fields: [
-      { key: 'coverage', label: 'How much of the evidence you looked at: strong, partial or thin', kind: 'line' },
+      { key: 'claim', label: 'The claim you are checking', kind: 'line', optional: true },
+      { key: 'coverage', label: 'How much of the evidence you looked at', kind: 'choice', options: ['strong', 'partial', 'thin'],
+        optionLabels: { strong: 'Broad coverage', partial: 'Partial coverage', thin: 'Little evidence reviewed' } },
       { key: 'signals', label: 'What each source said', kind: 'json', rows: 11 },
     ],
     presets: [
       {
-        label: 'Two sources agree',
+        label: 'The evidence says no',
+        situation: 'A shop checks a stock claim against its inventory records and product page.',
         input: {
+          claim: 'The product is in stock.',
           coverage: 'strong',
           signals: [
-            { source: 'pricing-api', kind: 'structural', vote: 'supports', detail: 'API returns the new price' },
-            { source: 'checkout-page', kind: 'textual', vote: 'supports', detail: 'page shows the new price' },
+            { source: 'Inventory records', kind: 'structural', vote: 'contradicts', detail: 'The inventory records show 0 in stock.' },
+            { source: 'Product page', kind: 'textual', vote: 'contradicts', detail: 'The product page says sold out.' },
           ],
         },
       },
       {
-        label: 'The evidence says no',
+        label: 'Two sources agree',
+        situation: 'A shop checks a price change against its price records and checkout page.',
         input: {
+          claim: 'The new price is live.',
           coverage: 'strong',
           signals: [
-            { source: 'inventory-db', kind: 'structural', vote: 'contradicts', detail: 'stock count is 0' },
-            { source: 'product-page', kind: 'textual', vote: 'contradicts', detail: 'page says sold out' },
+            { source: 'Price records', kind: 'structural', vote: 'supports', detail: 'The price records show the new price.' },
+            { source: 'Checkout page', kind: 'textual', vote: 'supports', detail: 'The checkout page shows the new price.' },
           ],
         },
       },
       {
         label: 'Thin sample, mixed signals',
+        situation: 'A team compares a user’s praise for a feature with an open bug report.',
         input: {
+          claim: 'The feature works as intended.',
           coverage: 'thin',
           signals: [
             { source: 'forum-post', kind: 'textual', vote: 'supports', detail: 'one user says it works' },
@@ -507,29 +633,35 @@ if (result.verdict !== 'clean' || qualified > 0${input.table == null ? '' : ' ||
     ],
     run(kit, input) {
       const result = kit.corroborate(input.signals, input.coverage);
-      const voteMark = { supports: 'ok', contradicts: 'bad', inconclusive: 'skip' };
+      const voteMark = { supports: 'info', contradicts: 'bad', inconclusive: 'skip' };
+      const voteLabel = { supports: 'Supports the claim.', contradicts: 'Contradicts the claim.', inconclusive: 'Inconclusive.' };
       const rows = result.signals.map((s) => ({
         mark: voteMark[s.vote] ?? 'info',
-        title: `${s.source}: ${s.vote}`,
-        detail: `${s.kind} evidence. ${s.detail}`,
+        title: s.detail ? `${s.detail.charAt(0).toUpperCase()}${s.detail.slice(1)}` : s.source,
+        detail: s.detail ? `${s.source}. ${voteLabel[s.vote]}` : voteLabel[s.vote],
       }));
       const direction = {
-        supports: 'The evidence supports the claim',
-        contradicts: 'The evidence contradicts the claim',
-        mixed: 'The evidence is split',
-        none: 'There is no evidence either way',
+        supports: 'The evidence supports the claim.',
+        contradicts: `${plural(result.contradicts, 'source')} ${result.contradicts === 1 ? 'contradicts' : 'contradict'} the claim.`,
+        mixed: 'The evidence is split.',
+        none: 'There is no evidence either way.',
       }[result.direction];
       // Newer releases count pages of one site or repository once, and say so.
       for (const group of result.groups ?? []) {
         for (const merge of group.merges) rows.push({ mark: 'info', title: 'Counted as one source', detail: merge.explanation });
       }
-      if (result.direction === 'contradicts') rows.push({ mark: 'bad', title: 'Correct or withdraw the claim', detail: 'The evidence points the other way.', fix: 'Update the claim to match the evidence, or remove it.' });
-      else if (result.verdict !== 'confirmed') rows.push({ mark: 'skip', title: 'Not confirmed yet', detail: `Coverage is ${result.coverage}.`, fix: 'Look at more of the evidence, and add a non-textual check (an API, a schema or observed behavior) before calling it confirmed.' });
+      const fix = result.direction === 'contradicts' ? 'Update the claim to match the evidence, or remove it.'
+        : result.verdict !== 'confirmed' ? 'Look at more evidence, including records or something you observed directly.'
+        : null;
       const tone = result.direction === 'contradicts' ? 'fail' : result.direction === 'supports' && result.verdict === 'confirmed' ? 'pass' : 'warn';
       return {
         tone,
-        headline: `${direction}. Strength: ${result.verdict} (${result.coverage} coverage).`,
-        summary: `${plural(result.supports, 'supporting source')} · ${plural(result.contradicts, 'contradicting source')}`,
+        headline: direction,
+        fix,
+        quote: input.claim?.trim(),
+        counts: [[result.supports === 1 ? 'supporting source' : 'supporting sources', result.supports, 'info'],
+          [result.contradicts === 1 ? 'contradicting source' : 'contradicting sources', result.contradicts, 'bad']],
+        reportSummary: `${plural(result.supports, 'supporting source')} · ${plural(result.contradicts, 'contradicting source')}`,
         rows,
         viz: { type: 'needle', supports: result.supports, contradicts: result.contradicts, direction: result.direction, verdict: result.verdict, coverage: result.coverage },
         raw: result,
@@ -553,16 +685,18 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
     version: '0.4.0',
     group: GROUPS[1],
     name: 'Claims on your site',
-    question: 'Is every public claim still backed by evidence someone checked recently?',
+    question: 'Does each public claim point at evidence that someone reviewed recently?',
+    catches: 'Find claims that need evidence or a review.',
     limit: 'Checks that a claim points at evidence and that it was reviewed recently, not that the evidence still holds.',
     fields: [
-      { key: 'now', label: 'Today (fixed so results are repeatable)', kind: 'line' },
+      { key: 'now', label: 'Date to check against', kind: 'line' },
       { key: 'maxAgeDays', label: 'Re-check claims every N days', kind: 'line' },
       { key: 'claims', label: 'Claims and their evidence', kind: 'json', rows: 12 },
     ],
     presets: [
       {
         label: 'A typical product page',
+        situation: 'A software team checks the references and review dates for its product claims.',
         input: {
           now: '2026-10-01',
           maxAgeDays: '90',
@@ -575,6 +709,7 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
       },
       {
         label: 'Everything current',
+        situation: 'A software team reviews the references behind its syncing and export claims.',
         input: {
           now: '2026-10-01',
           maxAgeDays: '90',
@@ -586,25 +721,32 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
       },
     ],
     run(kit, input) {
-      const now = strictDate(input.now, 'Today');
+      const now = strictDate(input.now, 'Date to check against');
       const maxAgeDays = Number(input.maxAgeDays);
       const report = kit.generateClaimsReport(input.claims, maxAgeDays, now);
       const rows = [
-        ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), detail: 'No evidence linked, or only a placeholder such as TODO. Nothing backs this claim.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
-        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), detail: c.ageDays === null ? 'The review date could not be read.' : `Last checked ${staleAge(c.ageDays, maxAgeDays)}. Due for a re-check.`, fix: 'Re-check the evidence and update verifiedAt.' })),
-        ...report.current.map((c) => ({ mark: 'ok', title: clip(c.text), detail: `Checked ${plural(c.ageDays, 'day')} ago.` })),
+        ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), quoted: true, label: 'Evidence link missing', detail: 'No evidence linked, or only a placeholder such as TODO.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
+        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), quoted: true, label: 'Review needed', detail: c.ageDays === null ? 'The review date could not be read.' : `Last checked ${staleAge(c.ageDays, maxAgeDays)}. Due for a re-check.`, fix: 'Re-check the evidence and update the review date.' })),
+        ...report.current.map((c) => ({ mark: 'info', title: clip(c.text), quoted: true, label: 'Evidence link present', detail: `Has an evidence link; reviewed ${plural(c.ageDays, 'day')} ago.` })),
       ];
       const { current, stale, unverified, total } = report.counts;
-      const tone = unverified ? 'fail' : stale ? 'warn' : 'pass';
+      const tone = unverified ? 'fail' : stale ? 'warn' : 'info';
+      const problems = [
+        unverified ? `${plural(unverified, 'claim')} with no evidence link` : '',
+        stale ? `${plural(stale, 'claim')} overdue for a check` : '',
+      ].filter(Boolean);
       const headline = unverified || stale
-        ? `${plural(unverified, 'claim')} with no evidence, ${stale} overdue for a check.`
-        : `All ${plural(total, 'claim')} are backed and recently checked.`;
-      const mark = (c) => (report.unverified.includes(c) ? 'bad' : report.stale.includes(c) ? 'warn' : 'ok');
+        ? `${problems.join(', ')}.`
+        : total === 0 ? 'There are no claims to check.'
+        : total === 1 ? `The claim points at evidence and was checked within ${plural(maxAgeDays, 'day')}.`
+        : `${total === 2 ? 'Both claims' : `All ${total} claims`} point at evidence and were checked within ${plural(maxAgeDays, 'day')}.`;
+      const mark = (c) => (report.unverified.includes(c) ? 'bad' : report.stale.includes(c) ? 'warn' : 'info');
       const items = [...report.current, ...report.stale, ...report.unverified].map((c) => ({ label: c.id, ageDays: c.ageDays, mark: mark(c) }));
       return {
         tone,
+        stamp: tone === 'info' ? total ? 'Evidence links present, dates recent' : 'No claims to check' : undefined,
         headline,
-        summary: `${current} current · ${stale} stale · ${unverified} unverified`,
+        counts: [['current', current, 'info'], ['overdue', stale, 'warn'], ['no evidence link', unverified, 'bad']],
         rows,
         viz: { type: 'timeline', items, thresholds: [{ days: maxAgeDays, label: `re-check after ${maxAgeDays}d` }], unit: 'days since last checked' },
         raw: report,
@@ -629,15 +771,20 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
     group: GROUPS[1],
     name: 'Freshness labels',
     question: 'How old is this information, and what should its label say?',
+    catches: 'See which review dates are overdue.',
     limit: 'Measures age from the review date you supply. It does not know whether the content changed.',
     fields: [
-      { key: 'now', label: 'Today (fixed so results are repeatable)', kind: 'line' },
-      { key: 'config', label: 'When to warn and when to call it stale (days)', kind: 'json', rows: 4 },
+      { key: 'now', label: 'Date to check against', kind: 'line' },
+      { key: 'config', label: 'Review date limits', kind: 'json', rows: 4, numberFields: [
+        ['warnAfterDays', 'Warn after this many days'],
+        ['staleAfterDays', 'Mark as stale after this many days'],
+      ] },
       { key: 'pages', label: 'Pages and when each was last reviewed', kind: 'json', rows: 9 },
     ],
     presets: [
       {
         label: 'A help center',
+        situation: 'A support team checks when it last reviewed shipping, returns and warranty pages.',
         input: {
           now: '2026-10-01',
           config: { warnAfterDays: 30, staleAfterDays: 90 },
@@ -648,9 +795,22 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
           ],
         },
       },
+      {
+        label: 'Recently reviewed pages',
+        situation: 'A support team looks at the dates from its latest help center review.',
+        input: {
+          now: '2026-10-01',
+          config: { warnAfterDays: 30, staleAfterDays: 90 },
+          pages: [
+            { page: 'Shipping rates', reviewedOn: '2026-09-24' },
+            { page: 'Return policy', reviewedOn: '2026-09-25' },
+            { page: 'Warranty terms', reviewedOn: '2026-09-26' },
+          ],
+        },
+      },
     ],
     run(kit, input) {
-      const now = strictDate(input.now, 'Today');
+      const now = strictDate(input.now, 'Date to check against');
       const mark = { fresh: 'ok', aging: 'warn', stale: 'bad' };
       const fix = { aging: 'Schedule a review before it goes stale.', stale: 'Review the page and update its reviewed date.' };
       const results = input.pages.map((p) => ({ page: p.page, result: kit.assessFreshness(p.reviewedOn, input.config, undefined, now) }));
@@ -658,7 +818,9 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
         const badge = kit.freshnessBadgeText(result);
         return {
           mark: mark[result.level] ?? 'info',
-          title: badge ? `${page}: “${badge}”` : `${page}: no label needed`,
+          title: page,
+          quoted: true,
+          label: badge ? badge.replace(/\s*\u2014\s*/g, ': ').replace(/\b(\d+)d\b/g, (_, days) => plural(Number(days), 'day')) : 'No freshness label needed',
           detail: result.message || `Reviewed ${plural(result.ageDays, 'day')} ago, inside your ${input.config.warnAfterDays}-day window.`,
           fix: fix[result.level] ?? null,
         };
@@ -701,10 +863,12 @@ if (stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------- accuracy-claim
   {
     id: 'accuracy-claim-kit',
-    version: '0.1.0',
+    version: '0.1.1',
     group: GROUPS[1],
     name: 'Accuracy figures',
     question: 'Do the counts behind an accuracy figure carry it?',
+    catches: 'See what accuracy figure your counts support.',
+    benchmark: 'agreement-with-an-independent-oracle-and-a-hand-labeled-holdout',
     limit: 'Takes your word on who labeled the items and how they were picked. It judges the figure against the counts, not whether the system is accurate.',
     fields: [
       { key: 'claim', label: 'The figure you want to publish', kind: 'json', rows: 6 },
@@ -712,21 +876,24 @@ if (stale > 0) process.exitCode = 1;
     ],
     presets: [
       {
-        label: 'A figure the counts carry',
-        input: {
-          claim: { metric: 'accuracy', value: 0.98, display: '98%' },
-          evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
-        },
-      },
-      {
         label: 'More than the counts allow',
+        situation: 'A team wants to publish an AI accuracy figure from a sample people graded.',
         input: {
           claim: { metric: 'accuracy', value: 0.995, display: '99.5%' },
           evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
         },
       },
       {
+        label: 'A figure the counts carry',
+        situation: 'A team checks a cautious accuracy figure against a sample people graded.',
+        input: {
+          claim: { metric: 'accuracy', value: 0.98, display: '98%' },
+          evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
+        },
+      },
+      {
         label: 'Between safe and observed',
+        situation: 'A team checks a figure below the sample result before publishing it.',
         input: {
           claim: { metric: 'accuracy', value: 0.985, display: '98.5%' },
           evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'human', raters: 2 }, sampling: 'random' },
@@ -734,6 +901,7 @@ if (stale > 0) process.exitCode = 1;
       },
       {
         label: 'Labels from a model',
+        situation: 'A team uses another AI model to grade answers for an accuracy claim.',
         input: {
           claim: { metric: 'accuracy', value: 0.98, display: '98%' },
           evidence: { sample: { n: 1000, correct: 990 }, provenance: { source: 'model' }, sampling: 'random' },
@@ -810,11 +978,10 @@ if (stale > 0) process.exitCode = 1;
         rows.push({
           mark,
           title: TITLES[code] ?? (code ? `${code.charAt(0).toUpperCase()}${code.slice(1).replace(/-/g, ' ')}` : 'Note'),
-          detail: r.explanation[i] ?? code,
+          detail: r.explanation[i] ? accuracyExplanation(r.explanation[i]) : code,
           fix: mark === 'ok' ? undefined : FIXES[code] ?? 'Follow the explanation, then run the check again.',
         });
       }
-      rows.push({ mark: 'info', title: 'What you can say instead', detail: r.suggestedStatement });
       const tone = { supported: 'pass', contradicted: 'fail', overstated: 'warn', refused: 'warn' }[r.verdict] ?? 'info';
       const headline = {
         supported: `The counts carry ${display}.`,
@@ -823,6 +990,8 @@ if (stale > 0) process.exitCode = 1;
         refused: `No verdict on ${display}: the counts cannot carry a figure yet.`,
       }[r.verdict] ?? `Verdict: ${r.verdict}.`;
       const interval = r.interval;
+      // The kit already rounds the two bounds outward at the precision it recommends.
+      const bounds = r.suggestedStatement.match(/Wilson interval ([\d.]+%) to ([\d.]+%)/)?.slice(1);
       const LOWER = new Set(['error-rate', 'false-positive-rate', 'false-negative-rate']);
       // A complete set (a benchmark or a fixed split) is judged against its exact count, with
       // no interval. The count is the one the kit compared: right answers for a higher-is-better
@@ -834,25 +1003,15 @@ if (stale > 0) process.exitCode = 1;
         const successes = LOWER.has(r.metric) ? r.n - correct : correct;
         census = { point: successes / r.n, successes, n: r.n };
       }
-      // accuracy-claim-kit 0.1.0 writes the observed rate with two decimals, so a rate just under 100% reads as 100.00%
-      // in its own text. The kit's words are shown as returned; this note adds the exact rate. It is based on the counts,
-      // not on the text, so a 100.00% quoted from the user's own claim never triggers it.
-      const sampleCounts = input.evidence?.sample;
-      const observedRate = census ? census.point
-        : !LOWER.has(r.metric) && sampleCounts && sampleCounts.n > 0 ? (sampleCounts.correct ?? sampleCounts.n - sampleCounts.errors) / sampleCounts.n : null;
-      // Only the kit's own count phrasing counts, e.g. "(999999990 of 1000000000, 100.00%)", never a number quoted from the claim.
-      const kitSays100 = !!census && [...r.explanation, r.suggestedStatement].some((line) => line.includes(`of ${census.n}, 100.00%`) || line.includes(`): 100.00% ${r.metric}`));
-      if (r.verdict !== 'refused' && kitSays100 && typeof observedRate === 'number' && !LOWER.has(r.metric) && observedRate < 1 && (observedRate * 100).toFixed(2) === '100.00') {
-        rows.push({ mark: 'info', title: 'The kit rounds this rate to 100.00%', detail: `The kit's own text uses two decimals. The counts give ${pct(observedRate)}, which is not 100%.` });
-      }
       return {
         tone,
         headline,
         summary: interval
-          ? `${Math.round(interval.confidence * 100)}% interval from the counts: ${pct(interval.low)} to ${pct(interval.high)}. Observed ${pct(interval.point)} (${interval.successes} of ${interval.n}).`
+          ? `${Math.round(interval.confidence * 100)}% interval from the counts${bounds ? `: ${bounds.join(' to ')}` : ''}. Observed ${pct(interval.point)} (${interval.successes} of ${interval.n}).`
           : census ? `Exact count on the whole set: ${census.successes} of ${census.n} (${pct(census.point)}). The whole set was checked, so there is no interval.`
-          : 'No interval: the evidence has to be complete before the kit will judge a figure.',
+          : 'No range was calculated. The findings below explain why this evidence could not be used.',
         rows,
+        statement: r.suggestedStatement,
         viz: {
           type: 'interval',
           better: LOWER.has(r.metric) ? 'lower' : 'higher',
@@ -862,7 +1021,7 @@ if (stale > 0) process.exitCode = 1;
           ...(census ? { census } : {}),
           verdict: r.verdict,
           mark: { supported: 'ok', contradicted: 'bad', overstated: 'warn', refused: 'warn' }[r.verdict] ?? 'info',
-          interval: interval ? { low: interval.low, high: interval.high, point: interval.point, confidence: interval.confidence, successes: interval.successes, n: interval.n } : null,
+          interval: interval ? { ...interval, bounds } : null,
         },
         raw: r,
       };
@@ -880,23 +1039,9 @@ if (evidence && typeof evidence === 'object' && Object.hasOwn(evidence, 'claim')
 
 const result = assessAccuracyClaim({ ...evidence, claim });
 console.log(result.verdict, result.reasons.join(', '));
-for (const line of result.explanation) console.log(' -', line);
+${source(accuracyExplanation)}
+for (const line of result.explanation) console.log(' -', accuracyExplanation(line));
 console.log('Say this instead:', result.suggestedStatement);
-
-// The kit writes the observed rate with two decimals, so a rate just under 100% prints as 100.00% above.
-const counts = evidence?.sample;
-const lowerIsBetter = ['error-rate', 'false-positive-rate', 'false-negative-rate'].includes(claim.metric);
-// Only the kit's own count phrasing for a complete set counts, never a number quoted from the claim.
-const kitSays100 = result.basis === 'census' && [...result.explanation, result.suggestedStatement].some((line) => line.includes('of ' + result.n + ', 100.00%') || line.includes('): 100.00% ' + result.metric));
-if (result.verdict !== 'refused' && kitSays100 && counts && counts.n > 0 && !lowerIsBetter) {
-  const rate = (counts.correct ?? counts.n - counts.errors) / counts.n;
-  let digits = 2;
-  while (rate < 1 && (rate * 100).toFixed(digits) === (100).toFixed(digits) && digits < 12) digits += 1;
-  if (digits > 2) {
-    const shown = (rate * 100).toFixed(digits);
-    console.log('Note: the counts give ' + (shown.startsWith('100') ? 'just under 100%' : shown + '%') + ', which is not 100%.');
-  }
-}
 
 // Fail the build unless the counts carry the figure.
 if (result.verdict !== 'supported') process.exitCode = 1;
@@ -910,69 +1055,74 @@ if (result.verdict !== 'supported') process.exitCode = 1;
     group: GROUPS[1],
     name: 'Copies and dates',
     question: 'Does every copy of a fact still match its source, and did the review date move for a reason?',
+    catches: 'Catch copies that drift and review dates that move.',
+    benchmark: 'accuracy-on-real-data',
     limit: 'Compares the data you give it. It does not know which copy is right, prove that a person rechecked anything or check that a value is true.',
     fields: [
       { key: 'source', label: 'The data you trust (source of truth)', kind: 'json', rows: 9 },
       { key: 'copy', label: 'A copy you publish somewhere else', kind: 'json', rows: 9 },
-      { key: 'earlier', label: 'The source before its last update ([] skips the date check)', kind: 'json', rows: 9 },
+      { key: 'earlier', label: 'The source before its last update (an empty list skips the check for moved dates)', kind: 'json', rows: 9 },
       { key: 'options', label: 'Which fields hold the review date and where a value came from', kind: 'json', rows: 4 },
     ],
     presets: [
       {
         label: 'A copy that drifted',
+        situation: 'A software company compares a published plan list with its official prices.',
         input: {
           source: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', price: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
           ],
           copy: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'team', name: 'Team', priceUsd: 25, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'enterprise', name: 'Enterprise', priceUsd: 199, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', price: 25, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'enterprise', name: 'Enterprise', price: 199, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
           ],
           earlier: [],
           options: { reviewedField: 'lastReviewed', sourceFields: ['source'] },
         },
       },
       {
-        label: 'Dates moved, nothing rechecked',
+        label: 'A copy and dates that hold up',
+        situation: 'A software company updates a plan price and compares both copies of the list.',
         input: {
           source: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', price: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
           ],
           copy: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', price: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
           ],
           earlier: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
-            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', price: 25, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
           ],
           options: { reviewedField: 'lastReviewed', sourceFields: ['source'] },
         },
       },
       {
-        label: 'A copy and dates that hold up',
+        label: 'Dates moved, nothing rechecked',
+        situation: 'A software company changes review dates on a price list without changing the records behind them.',
         input: {
           source: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
-            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', price: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
           ],
           copy: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
-            { id: 'team', name: 'Team', priceUsd: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'team', name: 'Team', price: 29, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-10-01' },
           ],
           earlier: [
-            { id: 'starter', name: 'Starter', priceUsd: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
-            { id: 'team', name: 'Team', priceUsd: 25, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
-            { id: 'business', name: 'Business', priceUsd: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'starter', name: 'Starter', price: 9, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'team', name: 'Team', price: 29, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
+            { id: 'business', name: 'Business', price: 79, source: 'https://example.test/pricing', lastReviewed: '2026-04-01' },
           ],
           options: { reviewedField: 'lastReviewed', sourceFields: ['source'] },
         },
@@ -1013,9 +1163,9 @@ if (result.verdict !== 'supported') process.exitCode = 1;
         const detail = c.change === 'different' ? `The source says ${val(c.canonical)}. The copy says ${val(c.mirror)}.`
           : c.change === 'missing-in-mirror' ? `The source has ${val(c.canonical)}. The copy has no such field.`
           : `The copy has ${val(c.mirror)}. The source has no such field.`;
-        rows.push({ mark: 'bad', title: `${c.id}: ${c.field} differs`, detail, fix: 'Rebuild the copy from the source instead of editing it by hand.' });
+        rows.push({ mark: 'bad', title: `${c.id}: ${parityFieldLabel(c.field)} differs`, detail, fix: 'Rebuild the copy from the source instead of editing it by hand.' });
       }
-      for (const s of mirror.stampHidesDrift) rows.push({ mark: 'bad', title: `${s.id}: same review date, different data`, detail: `Both say reviewed ${s.reviewedValue}, yet ${s.fields.join(', ')} ${s.fields.length === 1 ? 'differs' : 'differ'}. The date vouches for a mismatch.`, fix: 'Recheck the record, then update the copy and its review date together.' });
+      for (const s of mirror.stampHidesDrift) rows.push({ mark: 'bad', title: `${s.id}: same review date, different data`, detail: `Both say reviewed ${s.reviewedValue}, yet ${s.fields.map(parityFieldLabel).join(', ')} ${s.fields.length === 1 ? 'differs' : 'differ'}.`, fix: 'Recheck the record, then update the copy and its review date together.' });
       if (mirror.noFieldsCompared) rows.push({ mark: 'warn', title: 'No fields were compared', detail: 'Every field was left out, so nothing was checked.', fix: 'Stop leaving every field out of the comparison.' });
       problemRows(mirror);
       if (mirror.ok) rows.push({ mark: 'ok', title: 'Every record in the copy matches the source', detail: `${plural(mirror.compared, 'record')} compared, field by field.` });
@@ -1031,21 +1181,23 @@ if (result.verdict !== 'supported') process.exitCode = 1;
         if (audit.added.length || audit.removed.length) rows.push({ mark: 'info', title: 'Records changed since the earlier snapshot', detail: `${audit.added.length ? `Added: ${audit.added.join(', ')}. ` : ''}${audit.removed.length ? `Removed: ${audit.removed.join(', ')}.` : ''}`.trim() });
         if (audit.ok) rows.push({ mark: 'ok', title: 'Review dates moved only where the data changed', detail: `${plural(audit.compared, 'record')} compared with the earlier snapshot.` });
       } else {
-        rows.push({ mark: 'skip', title: 'Review dates not checked', detail: 'No earlier snapshot was given.' });
+        rows.push({ mark: 'skip', title: 'Date moves not checked', detail: 'There is no earlier copy to compare review dates with.' });
       }
       const flagged = mirror.status === 'flagged' || audit?.status === 'flagged';
       const unknown = mirror.status === 'unknown' || audit?.status === 'unknown';
       // The headline names each finding the kit flagged, not just that it flagged something.
       const parts = [];
       const drift = mirror.missing.length + mirror.extra.length + mirror.changed.length;
+      const movedTogether = audit?.bulkBump.reduce((total, group) => total + group.count, 0) ?? 0;
       if (drift) parts.push(`the copy has drifted from its source in ${plural(drift, 'place')}`);
+      if (mirror.stampHidesDrift.length) parts.push(plural(mirror.stampHidesDrift.length, 'review date hides drift', 'review dates hide drift'));
       if (dupeIds.size) parts.push(`${plural(dupeIds.size, 'id')} ${dupeIds.size === 1 ? 'appears' : 'appear'} more than once`);
       if (audit) {
         const n = (list, one, rest) => `${plural(list.length, one)}${rest}`;
-        if (audit.stampOnly.length) parts.push('review dates moved with nothing in the data to show a recheck');
-        else if (audit.bulkBump.length) {
+        if (audit.stampOnly.length) parts.push(n(audit.stampOnly, 'review date', ' moved with nothing in the data to show a recheck'));
+        if (audit.bulkBump.length) {
           // Each bulk bump is one new review date; several bumps are several dates.
-          const moved = plural(audit.bulkBump.reduce((t, b) => t + b.count, 0), 'record');
+          const moved = plural(movedTogether, 'record');
           parts.push(audit.bulkBump.length === 1 ? `${moved} moved to one review date at once` : `${moved} moved in bulk to ${plural(audit.bulkBump.length, 'review date')}`);
         }
         if (audit.backward.length) parts.push(n(audit.backward, 'review date', ' moved earlier'));
@@ -1053,12 +1205,23 @@ if (result.verdict !== 'supported') process.exitCode = 1;
         if (audit.extendedDeadlines.length) parts.push(n(audit.extendedDeadlines, 'deadline', ' pushed later with no change to the source'));
       }
       if (flagged && !parts.length) parts.push('the kit flagged a problem, listed below');
+      const dateProblems = mirror.stampHidesDrift.length + (audit
+        ? audit.stampOnly.length + audit.backward.length + audit.future.length : 0);
+      const warnings = rows.filter((row) => row.mark === 'warn').length;
+      const counts = [
+        ['drifted', drift, 'bad'],
+        [dateProblems === 1 ? 'date problem' : 'date problems', dateProblems, 'bad'],
+        ['records with dates moved together', movedTogether, 'bad'],
+        [dupeIds.size === 1 ? 'repeated ID' : 'repeated IDs', dupeIds.size, 'bad'],
+        [warnings === 1 ? 'warning' : 'warnings', warnings, 'warn'],
+      ].filter(([, count]) => count);
       return {
         tone: flagged ? 'fail' : unknown ? 'warn' : 'pass',
         headline: flagged ? `${parts.join(', and ')}.`.replace(/^./, (c) => c.toUpperCase())
           : unknown ? 'Something could not be checked, so this is not a pass.'
           : `The copy matches its source${audit ? ' and the review dates moved for a reason' : ''}.`,
         summary: `${plural(mirror.compared, 'record')} compared with the source${audit ? `, ${audit.compared} with the earlier snapshot` : ''}.`,
+        ...(counts.length ? { counts } : {}),
         rows,
         raw: { copy: mirror, dates: audit },
       };
@@ -1097,16 +1260,19 @@ if (!mirror.ok${skip ? '' : ' || !audit.ok'}) process.exitCode = 1;
     group: GROUPS[2],
     name: 'Paid placement',
     question: 'Would your rankings change if a partner paid you more?',
+    catches: 'See if payouts change the ranking.',
+    collapseInputs: true,
     limit: 'Tests the scenarios you write. Passing them is evidence, not a proof for every possible payout.',
     fields: [
-      { key: 'ranker', label: 'Ranking code under test', kind: 'choice', options: Object.keys(RANKERS) },
-      { key: 'candidates', label: 'Products, with quality score and payout (basis points)', kind: 'json', rows: 7 },
+      { key: 'ranker', label: 'How to rank the products', kind: 'choice', options: Object.keys(RANKERS) },
+      { key: 'candidates', label: 'Products, quality scores and commissions (100 basis points = 1%)', kind: 'json', rows: 7 },
     ],
     presets: [
       {
-        label: 'A fair ranking',
+        label: 'A hidden payout boost',
+        situation: 'A shoe site tests a ranking rule that gives higher-paying partners a boost.',
         input: {
-          ranker: 'Ranks by quality score only',
+          ranker: 'Quietly boosts higher-paying partners',
           candidates: [
             { id: 'trail-runner', score: 90, payoutRateBps: 50 },
             { id: 'city-sneaker', score: 72, payoutRateBps: 0 },
@@ -1115,9 +1281,10 @@ if (!mirror.ok${skip ? '' : ' || !audit.ok'}) process.exitCode = 1;
         },
       },
       {
-        label: 'A hidden payout boost',
+        label: 'A fair ranking',
+        situation: 'A shoe site tests whether a quality-only ranking changes when commissions change.',
         input: {
-          ranker: 'Quietly boosts higher-paying partners',
+          ranker: 'Ranks by quality score only',
           candidates: [
             { id: 'trail-runner', score: 90, payoutRateBps: 50 },
             { id: 'city-sneaker', score: 72, payoutRateBps: 0 },
@@ -1130,11 +1297,17 @@ if (!mirror.ok${skip ? '' : ' || !audit.ok'}) process.exitCode = 1;
       const rank = RANKERS[input.ranker] ?? RANKERS['Ranks by quality score only'];
       const scenarios = PAYOUT_SCENARIOS;
       const result = kit.assertPayoutInvariance(rank, { candidates: input.candidates }, scenarios);
+      const base = result.baseline.orderedIds.map((id) => input.candidates.find((c) => c.id === id));
+      const first = base[0];
+      const lowest = base.length > 1 && base.slice(1).every((c) => c.score > first.score);
+      const highestPayout = base.length > 1 && base.slice(1).every((c) => c.payoutRateBps < first.payoutRateBps);
       const rows = scenarios.map((s) => {
         const failure = result.failures.find((f) => f.scenario === s.name);
         return failure
           ? { mark: 'bad', title: `If ${s.name}`, detail: `Ranking changed to ${failure.actual?.orderedIds?.join(' → ') ?? 'a different order'}.`, fix: 'Take payout fields out of the ranking path, or label paid placements clearly.' }
-          : { mark: 'ok', title: `If ${s.name}`, detail: 'Ranking stayed the same.' };
+          : { mark: 'ok', title: `If ${s.name}`, detail: s.short === 'Lowest pays most' && lowest && highestPayout
+            ? `Ranking stayed the same. ${first.id} already ranks first and pays the most.`
+            : `Ranking stayed the same when ${s.name}.` };
       });
       const columns = scenarios.map((s) => {
         const failure = result.failures.find((f) => f.scenario === s.name);
@@ -1145,7 +1318,7 @@ if (!mirror.ok${skip ? '' : ' || !audit.ok'}) process.exitCode = 1;
         headline: result.passed
           ? `Rankings ignored payout in all ${plural(scenarios.length, 'scenario')}.`
           : `Rankings moved with payout in ${result.failures.length} of ${plural(scenarios.length, 'scenario')}.`,
-        summary: `Base order: ${result.baseline.orderedIds.join(' → ')}`,
+        summary: `Base order: ${base.map((c) => `${c.id} (score ${c.score}, payout ${ratePercent(c.payoutRateBps)})`).join(' → ')}.${lowest && highestPayout ? ` ${first.id} ranks first with the lowest score and highest payout.` : ''}`,
         rows,
         viz: { type: 'slope', base: result.baseline.orderedIds, columns },
         raw: result,
@@ -1174,15 +1347,25 @@ if (!result.passed) process.exitCode = 1;
     group: GROUPS[2],
     name: 'Hidden factors',
     question: 'Does a decision change when a field it should ignore changes?',
+    catches: 'See if a decision depends on an unrelated field.',
+    collapseInputs: true,
     limit: 'Tests the variations you list. Passing them is evidence, not a proof for every input.',
     fields: [
-      { key: 'scorer', label: 'Decision code under test', kind: 'choice', options: Object.keys(SCORERS) },
-      { key: 'applicant', label: 'Base applicant', kind: 'json', rows: 5 },
+      { key: 'scorer', label: 'How to decide on a loan', kind: 'choice', options: Object.keys(SCORERS) },
+      { key: 'applicant', label: 'Applicant details before changing the ZIP code', kind: 'json', rows: 5 },
       { key: 'zips', label: 'Zip codes to try (should not matter)', kind: 'json', rows: 5 },
     ],
     presets: [
-      { label: 'Ignores zip code', input: { scorer: 'Looks at income only', applicant: { name: 'Applicant', zip: '68102', income: 85000 }, zips: ['02138', '90210', '38652'] } },
-      { label: 'Peeks at zip code', input: { scorer: 'Also peeks at zip code', applicant: { name: 'Applicant', zip: '68102', income: 85000 }, zips: ['02138', '90210', '38652'] } },
+      {
+        label: 'Peeks at zip code',
+        situation: 'A lender tries different ZIP codes while keeping the applicant’s income the same.',
+        input: { scorer: 'Also peeks at zip code', applicant: { name: 'Applicant', zip: '68102', income: 85000 }, zips: ['02138', '90210', '38652'] },
+      },
+      {
+        label: 'Ignores zip code',
+        situation: 'A lender tests an income-only decision by changing the applicant’s ZIP code.',
+        input: { scorer: 'Looks at income only', applicant: { name: 'Applicant', zip: '68102', income: 85000 }, zips: ['02138', '90210', '38652'] },
+      },
     ],
     run(kit, input) {
       const score = SCORERS[input.scorer] ?? SCORERS['Looks at income only'];
@@ -1190,20 +1373,21 @@ if (!result.passed) process.exitCode = 1;
       const result = kit.assertInvariance(score, input.applicant, scenarios);
       const variants = scenarios.map((s) => {
         const failure = result.failures.find((f) => f.scenario === s.name);
-        return { label: s.name.replace('zip code ', ''), value: failure ? failure.actual?.rateBps : result.baseline.rateBps, changed: Boolean(failure) };
+        const bps = failure ? failure.actual?.rateBps : result.baseline.rateBps;
+        return { label: s.name.replace('zip code ', ''), value: bps == null ? null : bps / 10_000, changed: Boolean(failure) };
       });
       const rows = scenarios.map((s, i) =>
         variants[i].changed
-          ? { mark: 'bad', title: `With ${s.name}`, detail: `Decision changed: rate ${variants[i].value} bps instead of ${result.baseline.rateBps}.`, fix: 'Remove the field from the decision, or document why it is allowed.' }
+          ? { mark: 'bad', title: `With ${s.name}`, detail: variants[i].value === null ? 'The decision could not be scored for this zip code.' : `Decision changed: rate ${ratePercent(variants[i].value * 10_000)} instead of ${ratePercent(result.baseline.rateBps)}.`, fix: 'Remove the field from the decision, or document why it is allowed.' }
           : { mark: 'ok', title: `With ${s.name}`, detail: 'Same decision.' });
       return {
         tone: result.passed ? 'pass' : 'fail',
         headline: result.passed
           ? `Same decision for all ${plural(scenarios.length, 'zip code')}.`
           : `The decision changed with zip code in ${result.failures.length} of ${plural(scenarios.length, 'case')}.`,
-        summary: `Base decision: approved=${result.baseline.approved}, rate ${result.baseline.rateBps} bps`,
+        summary: `Base decision: ${result.baseline.approved ? 'approved' : 'declined'} at ${ratePercent(result.baseline.rateBps)}.`,
         rows,
-        viz: { type: 'bars', unit: 'bps', baseline: { label: `base ${input.applicant.zip}`, value: result.baseline.rateBps }, bars: variants },
+        viz: { type: 'bars', unit: '%', percent: true, digits: 2, baseline: { label: `base ${input.applicant.zip}`, value: result.baseline.rateBps / 10_000 }, bars: variants },
         raw: result,
       };
     },
@@ -1231,7 +1415,9 @@ if (!result.passed) process.exitCode = 1;
     group: GROUPS[2],
     name: 'Did the advice work?',
     question: 'After someone followed a recommendation, did the problem actually get better?',
-    limit: 'Compares the windows before and after the decision. It shows an association, not that the advice caused the change.',
+    catches: 'Compare what happened before and after advice.',
+    collapseInputs: true,
+    limit: 'Compares readings before and after the decision. It cannot tell whether the advice caused the change.',
     fields: [
       { key: 'recommendation', label: 'The recommendation', kind: 'json', rows: 6 },
       { key: 'decision', label: 'What the person decided, and when', kind: 'json', rows: 5 },
@@ -1239,24 +1425,26 @@ if (!result.passed) process.exitCode = 1;
     ],
     presets: [
       {
-        label: 'The fix held',
-        input: {
-          recommendation: { id: 'rec-1', subjectId: 'checkout', checkKey: 'error-rate-high', proposedAt: '2026-09-01' },
-          decision: { recommendationId: 'rec-1', status: 'adopted', decidedAt: '2026-09-10' },
-          observations: [
-            ...['02', '04', '06', '08'].map((d, i) => ({ subjectId: 'checkout', checkKey: 'error-rate-high', state: i < 3 ? 'bad' : 'good', observedAt: `2026-09-${d}` })),
-            ...['12', '14', '16', '18'].map((d) => ({ subjectId: 'checkout', checkKey: 'error-rate-high', state: 'good', observedAt: `2026-09-${d}`, exposed: true })),
-          ],
-        },
-      },
-      {
         label: 'It got worse',
+        situation: 'A team compares checkout errors before and after it follows a recommendation.',
         input: {
           recommendation: { id: 'rec-2', subjectId: 'checkout', checkKey: 'error-rate-high', proposedAt: '2026-09-01' },
           decision: { recommendationId: 'rec-2', status: 'adopted', decidedAt: '2026-09-10' },
           observations: [
             ...['02', '04', '06', '08'].map((d, i) => ({ subjectId: 'checkout', checkKey: 'error-rate-high', state: i < 1 ? 'bad' : 'good', observedAt: `2026-09-${d}` })),
             ...['12', '14', '16', '18'].map((d, i) => ({ subjectId: 'checkout', checkKey: 'error-rate-high', state: i < 3 ? 'bad' : 'good', observedAt: `2026-09-${d}`, exposed: true })),
+          ],
+        },
+      },
+      {
+        label: 'The fix held',
+        situation: 'A team checks whether checkout errors fell after it followed a recommendation.',
+        input: {
+          recommendation: { id: 'rec-1', subjectId: 'checkout', checkKey: 'error-rate-high', proposedAt: '2026-09-01' },
+          decision: { recommendationId: 'rec-1', status: 'adopted', decidedAt: '2026-09-10' },
+          observations: [
+            ...['02', '04', '06', '08'].map((d, i) => ({ subjectId: 'checkout', checkKey: 'error-rate-high', state: i < 3 ? 'bad' : 'good', observedAt: `2026-09-${d}` })),
+            ...['12', '14', '16', '18'].map((d) => ({ subjectId: 'checkout', checkKey: 'error-rate-high', state: 'good', observedAt: `2026-09-${d}`, exposed: true })),
           ],
         },
       },
@@ -1289,10 +1477,9 @@ if (!result.passed) process.exitCode = 1;
       return {
         tone,
         headline: `${label}.`,
-        summary: kit.describeGrade(grade),
         rows,
         viz: { type: 'bars', unit: '%', percent: true, bars: [{ label: 'before', value: pct(grade.baseline), changed: false }, { label: 'after', value: pct(grade.result), changed: grade.verdict === 'not-holding' }] },
-        raw: grade,
+        raw: { ...grade, description: kit.describeGrade(grade) },
       };
     },
     snippet: (input) => `import { gradeDecision, describeGrade } from 'advice-ledger-kit';
@@ -1315,17 +1502,28 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
     version: '0.3.0',
     group: GROUPS[3],
     name: 'Review patterns',
-    question: 'Do these anonymous reviews look organic, or like a pattern worth a closer look?',
+    question: 'Do the review scores or sources show an unusual pattern?',
+    catches: 'Spot unusually uniform or single-source reviews.',
+    benchmark: 'readme',
     limit: 'Flags two cheap patterns (one source, near-identical sentiment). It cannot prove any review is fake.',
     fields: [
-      { key: 'now', label: 'Today (fixed so results are repeatable)', kind: 'line' },
+      { key: 'now', label: 'Date to check against', kind: 'line' },
       { key: 'reviews', label: 'Reviews: source site, sentiment (-1 to 1), confidence (0 to 1)', kind: 'json', rows: 10 },
     ],
     presets: [
       {
-        label: 'Varied reviews',
+        label: 'Near-identical 5-star reviews',
+        situation: 'A shopper sees nearly identical praise from a single marketplace.',
         input: {
-          now: '2026-10-01T00:00:00Z',
+          now: '2026-10-01',
+          reviews: ['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => ({ id, source: 'marketplace', sentiment: 0.99, confidence: 1, publishedAt: '2026-09-28' })),
+        },
+      },
+      {
+        label: 'Varied reviews',
+        situation: 'A shopper compares product reviews from several kinds of sites.',
+        input: {
+          now: '2026-10-01',
           reviews: [
             { id: 'r1', source: 'forum', sentiment: 0.8, confidence: 0.9, publishedAt: '2026-08-14' },
             { id: 'r2', source: 'marketplace', sentiment: 0.4, confidence: 0.8, publishedAt: '2026-07-02' },
@@ -1335,35 +1533,46 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
         },
       },
       {
-        label: 'Near-identical 5-star reviews',
-        input: {
-          now: '2026-10-01T00:00:00Z',
-          reviews: ['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => ({ id, source: 'marketplace', sentiment: 0.99, confidence: 1, publishedAt: '2026-09-28' })),
-        },
-      },
-      {
         label: 'Nothing usable',
+        situation: 'A shopper has a review from a source type the check does not recognize.',
         input: {
-          now: '2026-10-01T00:00:00Z',
+          now: '2026-10-01',
           reviews: [{ id: 'r1', source: 'unknown-site', sentiment: 0.9, confidence: 1, publishedAt: '2026-09-28' }],
         },
       },
     ],
     run(kit, input) {
-      const now = strictDate(input.now, 'Today').toISOString();
-      const result = kit.anonymous.assessAuthenticity(input.reviews, kit.anonymous.resolveAnonymousConfig(), { now });
-      const look = 'Read these reviews yourself before trusting the score.';
+      const now = strictDate(input.now, 'Date to check against').toISOString();
+      const config = kit.anonymous.resolveAnonymousConfig();
+      const result = kit.anonymous.assessAuthenticity(input.reviews, config, { now });
+      const minimum = config.astroturf.minSignalsForUniformCheck;
+      // The kit counts low-weight reviews as fractions toward the minimum.
+      const weights = new Map(Object.entries(config.sourceWeights));
+      const weighted = input.reviews.map((review) => [review,
+        Math.min(1, (weights.get(review.source.trim().toLowerCase()) ?? 0) * review.confidence / config.fullCountWeight),
+      ]).filter(([, weight]) => weight > 0);
+      const eligible = weighted.length === result.eligibleSignalCount ? weighted
+        : weighted.filter(([review]) => kit.anonymous.assessAuthenticity([review], config, { now }).eligibleSignalCount > 0);
+      const effective = eligible.reduce((sum, [, weight]) => sum + weight, 0);
+      const uniformityChecked = result.flags.uniformSentiment || effective >= minimum - minimum * 1e-9;
+      const look = 'Read the reviews and check where they came from.';
+      const uniformity = uniformityChecked
+        ? { mark: result.flags.uniformSentiment ? 'warn' : 'info', title: result.flags.uniformSentiment ? 'Review scores are unusually similar' : 'No flag for similar review scores', detail: result.flags.uniformSentiment ? 'The scores are nearly identical and close to the top of the scale.' : 'The check looks for nearly identical scores near the top of the scale.', fix: result.flags.uniformSentiment ? look : null }
+        : { mark: 'skip', title: 'Score similarity was not checked', detail: `The reviews carried less weight than ${minimum} full-weight reviews, the minimum for this check.` };
       const rows = [
-        { mark: result.flags.lowSourceCount ? 'warn' : 'ok', title: result.flags.lowSourceCount ? 'Evidence comes from very few source types' : 'Evidence spans several source types', detail: `${plural(result.sourceCount, 'source type')} counted. Independence is not verified.`, fix: result.flags.lowSourceCount ? look : null },
-        { mark: result.flags.uniformSentiment ? 'warn' : 'ok', title: result.flags.uniformSentiment ? 'Sentiment is unusually uniform' : 'Sentiment varies the way real opinions do', detail: 'Near-maximal sentiment with almost no variance is one cheap pattern worth a human look.', fix: result.flags.uniformSentiment ? look : null },
-        { mark: result.eligibleSignalCount === result.signalCount ? 'ok' : 'skip', title: `${result.eligibleSignalCount} of ${plural(result.signalCount, 'review')} carried weight`, detail: 'Zero confidence, an unlisted source or fully decayed age gives a review no weight.', fix: result.eligibleSignalCount === result.signalCount ? null : 'Use sources listed in your config, with confidence above 0.' },
+        { mark: result.flags.lowSourceCount ? 'warn' : 'info', title: `Reviews come from ${plural(result.sourceCount, 'source type')}`, detail: result.flags.lowSourceCount ? 'The review sources are too concentrated for this check.' : 'The source count is above the threshold for this flag. Sources can still share an origin.', fix: result.flags.lowSourceCount ? look : null },
+        uniformity,
+        { mark: result.eligibleSignalCount === result.signalCount ? 'info' : 'skip', title: `${result.eligibleSignalCount} of ${plural(result.signalCount, 'review')} carried weight`, detail: 'A review needs confidence, a recognized source type and a recent enough date to carry weight.', fix: result.eligibleSignalCount === result.signalCount ? null : 'Use sources listed in your config, with confidence above 0.' },
       ];
-      const viz = { type: 'dial', score: result.trustScore, confidence: result.confidence.level, flags: result.flags };
+      const viz = { type: 'dial', score: result.trustScore, confidence: result.confidence.level, flags: result.flags, uniformityChecked };
       if (result.trustScore === null) {
-        return { tone: 'info', headline: 'No score: there is not enough weighted evidence to say anything.', summary: result.explanation, rows: rows.slice(2), viz, raw: result };
+        return { tone: 'info', headline: 'No reviews carried enough weight to give a score.', rows: rows.slice(1), viz, raw: result };
       }
-      const tone = result.flags.lowSourceCount || result.flags.uniformSentiment ? 'warn' : 'pass';
-      return { tone, headline: `Heuristic score ${result.trustScore}/100 (${result.confidence.level} confidence).`, summary: result.explanation, rows, viz, raw: result };
+      const flagged = result.flags.lowSourceCount || result.flags.uniformSentiment;
+      return { tone: flagged ? 'warn' : 'info', stamp: flagged ? undefined : 'No pattern flagged',
+        headline: flagged ? 'The review scores or sources show an unusual pattern.'
+          : uniformityChecked ? 'The score and source checks flagged no pattern.' : 'No source pattern flagged. Score similarity was not checked.',
+        rows, viz, raw: result };
     },
     snippet: (input) => `import { anonymous } from 'trust-core';
 
@@ -1384,7 +1593,9 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
     group: GROUPS[3],
     name: 'Agent receipts',
     question: 'Did your AI agent stay inside what it was allowed to do, and do its claims match reality?',
-    limit: 'Compares the agent’s report with the permission slip and the state you supply. “Accepted” means no mismatch found, not proven true.',
+    catches: 'Catch actions outside an agent’s permissions.',
+    collapseInputs: true,
+    limit: 'Compares what the assistant reports with what you allowed and what you checked yourself. “Accepted” means the check found no mismatch.',
     fields: [
       { key: 'allowed', label: 'What the agent may do and cite', kind: 'json', rows: 4 },
       { key: 'report', label: 'What the agent says it did', kind: 'json', rows: 5 },
@@ -1393,18 +1604,20 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
     presets: [
       {
         label: 'An agent that overstepped',
+        situation: 'A shopping assistant says it sent a payment, but it only had permission to fill a cart.',
         input: {
           allowed: { actions: ['log-in', 'add-to-cart'], evidenceIds: ['screenshot-1', 'screenshot-2'] },
-          report: { claimedActions: ['log-in', 'add-to-cart', 'submit-payment'], citedEvidenceIds: ['screenshot-1'], claimedFacts: { cartItemCount: 1, couponApplied: true } },
-          currentState: { cartItemCount: 0 },
+          report: { claimedActions: ['log-in', 'add-to-cart', 'submit-payment'], citedEvidenceIds: ['screenshot-1'], claimedFacts: { 'items in cart': 1, 'coupon applied': true } },
+          currentState: { 'items in cart': 0 },
         },
       },
       {
-        label: 'An honest report',
+        label: 'A report that matches',
+        situation: 'A shopper compares an assistant’s report with what is in the cart.',
         input: {
           allowed: { actions: ['log-in', 'add-to-cart'], evidenceIds: ['screenshot-1', 'screenshot-2'] },
-          report: { claimedActions: ['log-in', 'add-to-cart'], citedEvidenceIds: ['screenshot-2'], claimedFacts: { cartItemCount: 1 } },
-          currentState: { cartItemCount: 1 },
+          report: { claimedActions: ['log-in', 'add-to-cart'], citedEvidenceIds: ['screenshot-2'], claimedFacts: { 'items in cart': 1 } },
+          currentState: { 'items in cart': 1 },
         },
       },
     ],
@@ -1413,27 +1626,30 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
       const claim = { packetId: packet.id, ...input.report };
       const result = kit.verifyReceipt(packet, claim, input.currentState);
       const rows = [
-        ...(result.packetMismatch ? [{ mark: 'bad', title: 'The report answers a different permission slip', detail: 'Its packet id does not match.', fix: 'Reject the report and re-run the agent with the right packet.' }] : []),
-        ...result.claimProblems.map((p) => ({ mark: 'bad', title: 'The report itself is malformed', detail: p, fix: 'Reject the report; ask the agent to report in the expected shape.' })),
-        ...result.unauthorizedActions.map((a) => ({ mark: 'bad', title: `Did something it was not allowed to: ${a}`, detail: 'Not in the permission slip.', fix: 'Undo or block the action, and tighten what the agent may do.' })),
+        ...(result.packetMismatch ? [{ mark: 'bad', title: 'The report answers a different permission slip', detail: 'The report gives the wrong reference number for its permission slip.', fix: 'Reject the report and run the agent with the right permission slip.' }] : []),
+        ...result.claimProblems.map((p) => ({ mark: 'bad', title: 'The report could not be read', detail: p, fix: 'Reject the report and ask for it in the required format.' })),
+        ...result.unauthorizedActions.map((a) => ({ mark: 'bad', title: `Action outside the permission slip: ${receiptActionLabel(a)}`, detail: 'The agent reported an action it was never allowed to take.', fix: 'Check whether the action happened, undo or block it if needed, and tighten what the agent may do.' })),
         ...result.droppedEvidenceIds.map((e) => ({ mark: 'bad', title: `Cited evidence it was not given: ${e}`, detail: 'Not in the evidence list, so it was dropped.', fix: 'Only accept evidence you handed the agent.' })),
-        ...result.contradictions.map((c) => ({ mark: 'bad', title: `Says ${c.key} is ${JSON.stringify(c.claimedFact)}`, detail: `You see ${JSON.stringify(c.currentFact)}.`, fix: 'Trust your own read of the state over the agent’s report.' })),
-        ...result.coverage.uncheckedFactKeys.map((k) => ({ mark: 'skip', title: `Not checked: ${k}`, detail: 'Your state did not include this fact.', fix: 'Add this fact to your own check so it can be compared.' })),
+        ...result.contradictions.map((c) => ({ mark: 'bad', title: `${receiptFactLabel(c.key)}: the agent reports ${JSON.stringify(c.claimedFact)}`, detail: `You see ${JSON.stringify(c.currentFact)}.`, fix: 'Use what you checked yourself when it differs from the report.' })),
+        ...result.coverage.uncheckedFactKeys.map((k) => ({ mark: 'skip', title: `${receiptFactLabel(k)} was missing from your own check`, fix: 'Add this fact to your own check so it can be compared.' })),
       ];
-      if (!rows.some((r) => r.mark === 'bad')) rows.unshift({ mark: 'ok', title: 'Every action was allowed and every checked fact matched', detail: `${result.coverage.comparedFactCount} of ${result.coverage.claimedFactCount} claimed facts compared.` });
+      if (!rows.some((r) => r.mark === 'bad')) rows.unshift({ mark: 'ok', title: 'Every reported action was allowed and every checked fact matched', detail: `${result.coverage.comparedFactCount} of ${plural(result.coverage.claimedFactCount, 'claimed fact')} compared.` });
       const unauthorized = new Set(result.unauthorizedActions);
       return {
         tone: result.accepted ? 'pass' : 'fail',
         headline: result.accepted ? 'Accepted: no mismatch found.' : 'Rejected: the report does not match what was allowed or what you see.',
-        summary: result.reason,
+        summary: [
+          result.unauthorizedActions.length ? `${plural(result.unauthorizedActions.length, 'claimed action')} outside the permission slip.` : '',
+          result.contradictions.length ? `${plural(result.contradictions.length, 'claimed fact')} contradicted by your own check.` : '',
+        ].filter(Boolean).join(' '),
         rows,
         viz: {
           type: 'lanes',
-          allowed: input.allowed.actions,
-          claimed: input.report.claimedActions.map((a) => ({ label: a, ok: !unauthorized.has(a) })),
+          allowed: input.allowed.actions.map(receiptActionLabel),
+          claimed: input.report.claimedActions.map((a) => ({ label: receiptActionLabel(a), ok: !unauthorized.has(a) })),
           facts: Object.keys(input.report.claimedFacts ?? {}).map((key) => {
             const c = result.contradictions.find((x) => x.key === key);
-            return { label: key, state: c ? 'bad' : result.coverage.uncheckedFactKeys.includes(key) ? 'skip' : 'ok' };
+            return { label: receiptFactLabel(key), state: c ? 'bad' : result.coverage.uncheckedFactKeys.includes(key) ? 'skip' : 'ok' };
           }),
         },
         raw: result,
@@ -1465,25 +1681,18 @@ if (!result.accepted) process.exitCode = 1;
     group: GROUPS[3],
     name: 'Tamper-evident log',
     question: 'Has anyone edited or deleted entries in this log after the fact?',
-    limit: 'Detects changes to entries it can see. Keep the anchor somewhere the log’s writer cannot edit, or a full rewrite goes unnoticed.',
+    catches: 'Catch edits and deletions in a log.',
+    limit: 'Detects changes by comparing entries with saved fingerprints (hashes). Keep the record of the last entry somewhere the log’s writer cannot edit, or a full rewrite goes unnoticed.',
     fields: [
       { key: 'entries', label: 'Log entries, in order', kind: 'json', rows: 12 },
-      { key: 'tamper', label: 'Simulate tampering after the fact', kind: 'choice', options: ['Leave the log alone', 'Change a field in entry 1', 'Delete the last entry'] },
+      { key: 'tamper', label: 'What to change in the example log', kind: 'choice',
+        options: ['Leave the log alone', 'Change a field in entry 1', 'Delete the last entry'],
+        optionLabels: { 'Change a field in entry 1': 'Change the amount in entry 2' } },
     ],
     presets: [
       {
-        label: 'Untouched log',
-        input: {
-          entries: [
-            { action: 'refund.requested', by: 'customer_17', amountUsd: 40 },
-            { action: 'refund.approved', by: 'agent_3', amountUsd: 40 },
-            { action: 'refund.paid', by: 'system', amountUsd: 40 },
-          ],
-          tamper: 'Leave the log alone',
-        },
-      },
-      {
         label: 'Someone changed an amount',
+        situation: 'A shop tests its refund log by changing the amount on an approval.',
         input: {
           entries: [
             { action: 'refund.requested', by: 'customer_17', amountUsd: 40 },
@@ -1491,6 +1700,18 @@ if (!result.accepted) process.exitCode = 1;
             { action: 'refund.paid', by: 'system', amountUsd: 40 },
           ],
           tamper: 'Change a field in entry 1',
+        },
+      },
+      {
+        label: 'Untouched log',
+        situation: 'A shop checks a refund log it has left alone.',
+        input: {
+          entries: [
+            { action: 'refund.requested', by: 'customer_17', amountUsd: 40 },
+            { action: 'refund.approved', by: 'agent_3', amountUsd: 40 },
+            { action: 'refund.paid', by: 'system', amountUsd: 40 },
+          ],
+          tamper: 'Leave the log alone',
         },
       },
     ],
@@ -1507,19 +1728,24 @@ if (!result.accepted) process.exitCode = 1;
       const rows = stored.map((e) => {
         const after = brokenAt !== null && e.index > brokenAt;
         const broken = brokenAt !== null && e.index === brokenAt;
+        const original = chain[e.index]?.payload?.amountUsd;
+        const amount = e.payload?.amountUsd;
+        const changedAmount = amount === original ? ''
+          : original === undefined ? ` This example added an amount of ${formatJson(amount)}.`
+          : ` This example changed the amount from ${formatJson(original)} to ${formatJson(amount)}.`;
         return {
           mark: broken ? 'bad' : after ? 'skip' : 'ok',
-          title: `#${e.index} ${e.payload?.action ?? ''}`,
-          detail: `${formatJson(e.payload)} · hash ${String(e.entryHash).slice(0, 12)}…`,
-          mono: true,
+          title: `Entry ${e.index + 1}: ${e.payload?.action ?? ''}`,
+          detail: after ? `The check stopped at entry ${brokenAt + 1}.`
+            : broken ? `This entry no longer matches its recorded hash.${changedAmount}`
+            : 'This entry matches its recorded hash.',
           fix: broken ? 'Restore this entry from a backup and find out who could write to the log.' : null,
         };
       });
-      if (brokenAt === stored.length) rows.push({ mark: 'bad', title: `#${stored.length} is missing`, detail: 'The saved anchor points at an entry that is no longer in the log.', fix: 'Restore the deleted entries from a backup.' });
+      if (brokenAt === stored.length) rows.push({ mark: 'bad', title: `Entry ${stored.length + 1} is missing`, detail: 'The separately saved record points to an entry that is no longer in the log.', fix: 'Restore the deleted entries from a backup.' });
       return {
         tone: result.valid ? 'pass' : 'fail',
-        headline: result.valid ? `All ${plural(stored.length, 'entry', 'entries')} check out against the anchor.` : `Tampering detected at entry ${brokenAt}.`,
-        summary: result.reason ?? 'Every hash links to the one before it, and the last one matches the saved anchor.',
+        headline: result.valid ? `${plural(stored.length, 'entry', 'entries')} matched the saved records.` : `Simulated tampering detected at entry ${brokenAt + 1}.`,
         rows,
         viz: {
           type: 'chain',
@@ -1528,7 +1754,7 @@ if (!result.accepted) process.exitCode = 1;
           kind: result.valid ? null : brokenAt === stored.length ? 'missing' : /content does not match/.test(result.reason ?? '') ? 'content' : 'link',
           anchorIndex: anchor?.index ?? null,
         },
-        raw: result,
+        raw: { ...result, entries: stored, anchor },
       };
     },
     snippet: (input) => `import { appendEntry, verifyChain } from 'audit-chain-kit';
@@ -1541,7 +1767,7 @@ const last = chain[chain.length - 1];
 const anchor = { index: last.index, entryHash: last.entryHash };
 
 ${{
-  'Change a field in entry 1': '\n// Simulated tampering, as in the playground: someone edits entry 1 in storage.\nchain = JSON.parse(JSON.stringify(chain));\nchain[1].payload.amountUsd = 400;\n',
+  'Change a field in entry 1': '\n// Simulated tampering: edit the second entry in storage.\nchain = JSON.parse(JSON.stringify(chain));\nchain[1].payload.amountUsd = 400;\n',
   'Delete the last entry': '\n// Simulated tampering, as in the playground: someone deletes the last entry.\nchain = chain.slice(0, -1);\n',
 }[input.tamper] ?? ''}
 // Later: load the stored log and verify it against the anchor.
@@ -1559,31 +1785,52 @@ if (!result.valid) process.exitCode = 1;
     version: '0.3.0',
     group: GROUPS[4],
     name: 'AI spend cap',
-    question: 'Will the next model call push you over your budget?',
-    limit: 'Prices calls with the rates you supply and estimates the next call before it runs. It is not a billing system.',
+    question: 'Will the next AI request push you over your budget?',
+    catches: 'Flag a request that could exceed your budget.',
+    limit: 'Estimates cost from the amount of text and the prices you enter. Your actual bill can differ.',
     fields: [
-      { key: 'rates', label: 'Your model’s prices, USD per million tokens', kind: 'json', rows: 4 },
-      { key: 'budget', label: 'Spent so far and your ceiling, USD', kind: 'json', rows: 4 },
-      { key: 'nextCall', label: 'Estimated size of the next call, in tokens', kind: 'json', rows: 5 },
+      { key: 'rates', label: 'AI prices', kind: 'json', rows: 4, numberFields: [
+        ['inputPerMillion', 'Input price ($ per million tokens)'],
+        ['outputPerMillion', 'Output price ($ per million tokens)'],
+      ] },
+      { key: 'budget', label: 'Budget', kind: 'json', rows: 4, numberFields: [
+        ['spentSoFarUsd', 'Spent so far ($)'], ['ceilingUsd', 'Spending cap ($)'],
+      ] },
+      { key: 'nextCall', label: 'Estimated size of the next request', kind: 'json', rows: 5, numberFields: [
+        ['inputTokens', 'Input tokens (text you send)'], ['outputTokens', 'Output tokens (text you expect back)'],
+      ] },
     ],
     presets: [
-      { label: 'Room left', input: { rates: { inputPerMillion: 3, outputPerMillion: 15 }, budget: { spentSoFarUsd: 18.4, ceilingUsd: 25 }, nextCall: { inputTokens: 2000, outputTokens: 500, cacheReadTokens: 8000 } } },
-      { label: 'Would go over', input: { rates: { inputPerMillion: 3, outputPerMillion: 15 }, budget: { spentSoFarUsd: 24.99, ceilingUsd: 25 }, nextCall: { inputTokens: 2000, outputTokens: 500, cacheReadTokens: 8000 } } },
+      {
+        label: 'Would go over',
+        situation: 'A team prices another AI request when it is close to its spending cap.',
+        input: { rates: { inputPerMillion: 3, outputPerMillion: 15 }, budget: { spentSoFarUsd: 24.99, ceilingUsd: 25 }, nextCall: { inputTokens: 2000, outputTokens: 500, cacheReadTokens: 8000 } },
+      },
+      {
+        label: 'Room left',
+        situation: 'A team estimates whether its next AI request will fit in the remaining budget.',
+        input: { rates: { inputPerMillion: 3, outputPerMillion: 15 }, budget: { spentSoFarUsd: 18.4, ceilingUsd: 25 }, nextCall: { inputTokens: 2000, outputTokens: 500, cacheReadTokens: 8000 } },
+      },
     ],
     run(kit, input) {
       const check = kit.checkPreCallCeiling({ ...input.budget, estimatedNextCallUsage: input.nextCall, rates: input.rates });
       const next = kit.estimateCostUsd(input.rates, input.nextCall);
-      const usd = (n) => `$${n.toFixed(4)}`;
+      // Keep cents unless they would hide which side of the ceiling the total is on.
+      const total = check.projectedTotalUsd;
+      const ceiling = input.budget.ceilingUsd;
+      let digits = 2;
+      while (digits < 20 && total !== ceiling && total.toFixed(digits) === ceiling.toFixed(digits)) digits++;
+      const usd = (n) => `$${n.toFixed(digits)}`;
+      const relation = total === ceiling ? 'at' : check.allowed ? 'under' : 'over';
       const rows = [
-        { mark: 'info', title: `Next call is about ${usd(next)}`, detail: `At $${input.rates.inputPerMillion}/M input and $${input.rates.outputPerMillion}/M output. Cache reads are priced at 0.1x input unless you set your own rate.` },
-        { mark: check.allowed ? 'ok' : 'bad', title: `Projected total ${usd(check.projectedTotalUsd)} of a ${usd(input.budget.ceilingUsd)} ceiling`, detail: check.allowed ? 'Under the ceiling, so the call may go ahead.' : 'Over the ceiling, so the call should not be made.', fix: check.allowed ? null : 'Skip or shrink the call, or raise the ceiling on purpose.' },
+        { mark: 'info', title: `Next request is about ${usd(next)}`, detail: `Per million tokens (pieces of text), the price is $${input.rates.inputPerMillion} for text sent and $${input.rates.outputPerMillion} for text returned.${input.nextCall.cacheReadTokens ? ` Includes ${input.nextCall.cacheReadTokens.toLocaleString('en-US')} tokens reused from earlier requests.` : ''}` },
+        { mark: check.allowed ? 'ok' : 'bad', title: `Projected total ${usd(total)} of a ${usd(ceiling)} ceiling`, detail: check.allowed ? `${relation === 'at' ? 'At' : 'Under'} the ceiling, so the call may go ahead.` : 'Over the ceiling, so the call should not be made.', fix: check.allowed ? null : 'Skip or shrink the call, or raise the ceiling on purpose.' },
       ];
       return {
         tone: check.allowed ? 'pass' : 'fail',
         headline: check.allowed ? 'Go ahead: the next call fits in the budget.' : 'Stop: the next call would go over budget.',
-        summary: `Projected ${usd(check.projectedTotalUsd)} = spent ${usd(input.budget.spentSoFarUsd)} + next call ${usd(next)}, ${check.allowed ? 'under' : 'over'} the ${usd(input.budget.ceilingUsd)} ceiling.`,
         rows,
-        viz: { type: 'budget', spent: input.budget.spentSoFarUsd, next, ceiling: input.budget.ceilingUsd, allowed: check.allowed },
+        viz: { type: 'budget', spent: input.budget.spentSoFarUsd, next, ceiling, digits, allowed: check.allowed },
         raw: check,
       };
     },
@@ -1626,13 +1873,18 @@ export function mcpLinks(toBase64) {
 
 /** A Markdown report of one result, for a pull request, issue or chat. */
 export function reportMarkdown(kit, result, link) {
-  const sign = { ok: '✓', bad: '✗', warn: '!', info: 'i', skip: '–' };
-  const lines = [`**${kit.id}@${kit.version}: ${result.headline}**`, ''];
-  if (result.summary) lines.push(result.summary, '');
+  const sign = { ok: '✓', bad: '✗', warn: '!', info: 'ℹ', skip: '–' };
+  const verdict = result.stamp && result.stamp !== result.headline ? `${result.stamp}. ${result.headline}` : result.headline;
+  const lines = [`**${kit.id}@${kit.version}: ${verdict}**`, ''];
+  const summary = result.reportSummary ?? result.summary;
+  if (summary) lines.push(summary, '');
+  if (result.quote) lines.push(`> ${result.quote.replaceAll('\n', '\n> ')}`, '');
+  if (result.fix) lines.push(`Fix: ${result.fix}`, '');
   for (const row of result.rows) {
     lines.push(`- ${sign[row.mark]} ${row.title}${row.detail ? `: ${row.detail}` : ''}`);
     if (row.fix) lines.push(`  - Fix: ${row.fix}`);
   }
+  if (result.statement) lines.push('', `> ${result.statement.replaceAll('\n', '\n> ')}`);
   lines.push('', `_What it does not check: ${kit.limit}_`);
   if (link) lines.push('', `[Open this example in the playground](${link})`);
   return lines.join('\n');
@@ -1670,7 +1922,10 @@ export function decodeExample(kit, token) {
   if (!parsed || parsed.v !== 1 || typeof parsed.input !== 'object' || parsed.input === null || Array.isArray(parsed.input)) return null;
   const input = {};
   for (const field of kit.fields) {
-    if (!Object.hasOwn(parsed.input, field.key)) return null;
+    if (!Object.hasOwn(parsed.input, field.key)) {
+      if (field.optional) continue;
+      return null;
+    }
     const value = parsed.input[field.key];
     if (field.kind === 'choice' && !field.options.includes(value)) return null;
     if ((field.kind === 'text' || field.kind === 'line') && typeof value !== 'string') return null;

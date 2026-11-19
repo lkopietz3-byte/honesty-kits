@@ -13,7 +13,6 @@ class FakeNode {
   append(...nodes) { this.children.push(...nodes); }
   set textContent(t) { this.text = String(t); }
   get textContent() { return this.text; }
-  set innerHTML(h) { this.text = h; }
 }
 globalThis.document = {
   createElementNS: (_ns, tag) => new FakeNode(tag),
@@ -119,7 +118,6 @@ const textsOf = (viz, width) => {
   const fig = renderViz(viz, { width, animate: false });
   return nodesOf(fig.children[0]).map(([n]) => n).filter((n) => n.tagName === 'text' && n.text).map((n) => n.text);
 };
-const pct2 = (x) => `${(x * 100).toFixed(2)}%`;
 
 test('K7 interval: both bounds of the interval stay visible, unclipped, at phone widths', { timeout: 5000 }, async () => {
   const kit = KITS.find((k) => k.id === 'accuracy-claim-kit');
@@ -127,11 +125,11 @@ test('K7 interval: both bounds of the interval stay visible, unclipped, at phone
   // 328px is the graphic's width on a 390px phone (the pane's padding and borders come off).
   for (const width of [...WIDTHS, 328, 390]) {
     for (const [i, preset] of kit.presets.entries()) {
-      const { viz } = await kit.run(mod, structuredClone(preset.input));
+      const { viz, raw } = await kit.run(mod, structuredClone(preset.input));
       if (!viz.interval) continue;
       check(viz, width, `accuracy preset ${i} at ${width}px`);
       const texts = textsOf(viz, width);
-      for (const bound of [pct2(viz.interval.low), pct2(viz.interval.high)]) {
+      for (const bound of raw.suggestedStatement.match(/Wilson interval ([\d.]+%) to ([\d.]+%)/).slice(1)) {
         assert.ok(texts.some((t) => t.split(/\s+/).includes(bound) || t.includes(`${bound} `) || t.endsWith(bound)), `preset ${i} at ${width}px shows ${bound}: ${JSON.stringify(texts)}`);
       }
       assert.ok(!texts.some((t) => t.endsWith('…')), `preset ${i} at ${width}px cuts a label: ${JSON.stringify(texts)}`);

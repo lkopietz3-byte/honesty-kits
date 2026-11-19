@@ -320,10 +320,36 @@ test('the playground code itself makes no network request of its own to other si
     const code = read(file).replace(/\/\*[\s\S]*?\*\/|(^|[^:'"`])\/\/.*$/gm, '$1');
     assert.ok(!/(?<![\w.$])(?:fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon)/.test(code), `${file} has no fetch, XHR, WebSocket, EventSource or beacon`);
   }
-  // The one dynamic import loads the kit from the same site when the build says so
-  // (the kit-base meta), and from jsDelivr only on the unbuilt page.
-  assert.match(built, /<meta name="kit-base" content="\.\/kits\/">/);
+  // Kits are imported from the built site’s local kit directory.
+  const imports = [...read('app.mjs').matchAll(/\bimport\s*\(([^\n]+)\)/g)].map((m) => m[1]);
+  assert.deepEqual(imports, ['`./kits/${kit.id}@${kit.version}/index.js${query}`']);
   assert.ok(!/cdn\.jsdelivr\.net|fonts\.googleapis\.com/.test(built), 'the built page names no CDN');
+});
+
+test('benchmark links point to results in the installed kit documentation', () => {
+  const targets = {
+    'grounding-kit': 'readme',
+    'provenance-kit': 'strict-mode-for-ci',
+    'number-trace-kit': 'accuracy-on-real-data',
+    'accuracy-claim-kit': 'agreement-with-an-independent-oracle-and-a-hand-labeled-holdout',
+    'parity-kit': 'accuracy-on-real-data',
+    'trust-core': 'readme',
+  };
+  assert.deepEqual(Object.fromEntries(KITS.filter((k) => k.benchmark).map((k) => [k.id, k.benchmark])), targets);
+  for (const [id, anchor] of Object.entries(targets)) {
+    const readme = read(`node_modules/${id}/README.md`);
+    if (anchor === 'readme') assert.match(readme, /^# /);
+    else {
+      const headings = [...readme.matchAll(/^#+ (.+)$/gm)].map((m) => m[1].toLowerCase().replace(/[^\w -]/g, '').replaceAll(' ', '-'));
+      assert.ok(headings.includes(anchor), `${id} README has #${anchor}`);
+    }
+  }
+});
+
+test('the Claims on your site README description makes no claim about what the evidence supports', () => {
+  const description = read('README.md').split('\n').find((line) => line.startsWith('| [claims-registry-kit]'));
+  assert.ok(description);
+  assert.doesNotMatch(description, /\bback(?:ed|s)\b/i);
 });
 
 // ------------------------------------------------------------------ wording

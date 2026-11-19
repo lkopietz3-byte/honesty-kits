@@ -34,24 +34,16 @@ for (const kit of KITS) {
   if (version !== kit.version) throw new Error(`${kit.id}: demos.mjs pins ${kit.version} but ${version} is installed (run npm ci)`);
   copyTree(new URL('dist/', installed), new URL(kitDir(kit), out));
 }
-// Preload the default kit's modules so the first result does not wait on a
-// request chain (page -> app.mjs -> kit -> kit imports).
-const first = KITS[0];
-const firstFiles = readdirSync(new URL(kitDir(first), out)).filter((f) => f.endsWith('.js'));
-const preload = ['app.mjs', 'demos.mjs', 'viz.mjs', ...firstFiles.map((f) => kitDir(first) + f)]
+// Preload the playground shell. The active check imports its kit on demand.
+const preload = ['app.mjs', 'demos.mjs', 'viz.mjs']
   .map((href) => `<link rel="modulepreload" href="./${href}">`).join('\n');
 
-// Fonts: swap the Google Fonts links for the vendored files.
-const googleFonts = /<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com">\n<link rel="preconnect" href="https:\/\/fonts\.gstatic\.com" crossorigin>\n<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com\/css2[^"]*">\n/;
-if (!googleFonts.test(page)) throw new Error('src/page.html font links changed: update tools/build.mjs');
 const fontCss = readFileSync(new URL('static/fonts/fonts.css', root), 'utf8');
-const bodyFont = fontCss.match(/\/\* latin \*\/\s*@font-face \{\s*font-family: 'Schibsted Grotesk';[^}]*?url\((fonts\/[^)]+\.woff2)\)/);
-if (!bodyFont) throw new Error('no latin Schibsted Grotesk file in static/fonts/fonts.css');
-const fontPreload = `<link rel="preload" href="./${bodyFont[1]}" as="font" type="font/woff2" crossorigin>`;
-page = page.replace(googleFonts, `<style>${fontCss.replace(/^\/\*.*?\*\/\n/, '')}</style>\n`);
+const fonts = [...fontCss.matchAll(/url\(fonts\/([^)]*)\)/g)].map((match) => match[1]);
+const fontPreload = fonts.map((file) => `<link rel="preload" href="./fonts/${file}" as="font" type="font/woff2" crossorigin>`).join('\n');
 mkdirSync(new URL('fonts/', out), { recursive: true });
-for (const file of readdirSync(new URL('static/fonts/', root))) {
-  if (/\.(woff2|txt)$/.test(file)) copyFileSync(new URL(`static/fonts/${file}`, root), new URL(`fonts/${file}`, out));
+for (const file of [...fonts, 'OFL-InstrumentSans.txt', 'OFL-SourceSerif4.txt']) {
+  copyFileSync(new URL(`static/fonts/${file}`, root), new URL(`fonts/${file}`, out));
 }
 
 const csp = [
@@ -64,8 +56,7 @@ const csp = [
   "base-uri 'none'",
   "form-action 'none'",
 ].join('; ');
-// The page fragment starts with its head material (title, meta, font links and
-// the stylesheet). Move that into <head> so crawlers read the metadata.
+// The page fragment starts with its title, meta description and stylesheet. Move that into <head> so crawlers read the metadata.
 const split = page.indexOf('</style>') + '</style>'.length;
 if (split < '</style>'.length) throw new Error('src/page.html has no </style>');
 const headPart = page.slice(0, split);
@@ -90,22 +81,22 @@ const html = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
-<meta name="kit-base" content="./kits/">
 ${fontPreload}
 ${preload}
-<meta property="og:title" content="Honesty Kits">
+<meta property="og:title" content="Can your AI back that up? Honesty Kits">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://lkopietz3-byte.github.io/honesty-kits/">
 <meta property="og:image" content="https://lkopietz3-byte.github.io/honesty-kits/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Honesty Kits playground showing a ranking that changed when a partner paid more.">
+<meta property="og:image:alt" content="An AI answer checked against its source: the total is in the source, the 45-day payment term is not.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="canonical" href="https://lkopietz3-byte.github.io/honesty-kits/">
 <script type="application/ld+json">${jsonLd}</script>
+<style>${fontCss}</style>
 ${headPart}
-<meta property="og:description" content="Small, dependency-free checks for the claims your AI product makes. Try each one in your browser.">
+<meta property="og:description" content="Catch the numbers, citations and accuracy claims your AI can't back up. Free, open-source checks that run in your browser.">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
