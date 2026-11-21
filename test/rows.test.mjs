@@ -55,13 +55,13 @@ const claimsInput = (claims, now = '2026-10-01', maxAgeDays = '90') => ({ now, m
 
 test('claims registry: day counts read "1 day", not "1 days"', async () => {
   const result = await run('claims-registry-kit', claimsInput([{ id: 'a', text: 'Checked yesterday', evidenceRef: 'tests/a.spec.ts', verifiedAt: '2026-09-30' }]));
-  assert.equal(result.rows[0].detail, 'Has an evidence link; reviewed 1 day ago.');
+  assert.equal(result.rows[0].detail, 'Has an evidence reference. The review date was 1 day ago.');
 });
 
 test('claims registry: an overdue claim says how far past the limit it is', async () => {
   const result = await run('claims-registry-kit', claimsInput([{ id: 'a', text: 'Old claim', evidenceRef: 'tests/a.spec.ts', verifiedAt: '2026-07-01' }]));
   assert.equal(result.tone, 'warn');
-  assert.equal(result.rows[0].detail, 'Last checked 92 days ago, past the 90-day limit. Due for a re-check.');
+  assert.equal(result.rows[0].detail, 'The review date was 92 days ago, past the 90-day limit. Due for a re-check.');
 });
 
 test('claims registry: a claim with no real evidence says placeholders do not count', async () => {
@@ -75,7 +75,7 @@ const hourRule = (await run('claims-registry-kit', boundary)).raw.counts.stale =
 test('claims registry: a claim hours past the limit does not read as inside it', { skip: hourRule ? false : 'installed claims-registry-kit predates the exact-hours age rule (0.4.0); NOT_RUN' }, async () => {
   const result = await run('claims-registry-kit', boundary);
   assert.equal(result.tone, 'warn');
-  assert.equal(result.rows[0].detail, 'Last checked 90 days and some hours ago, just past the 90-day limit. Due for a re-check.');
+  assert.equal(result.rows[0].detail, 'The review date was 90 days and some hours ago, just past the 90-day limit. Due for a re-check.');
 });
 
 // -------------------------------------------------------------------- freshness
@@ -187,7 +187,7 @@ test('Claims on your site describes the presence and age of evidence without cla
     if (result.raw.counts.current === result.raw.counts.total) {
       assert.equal(result.raw.counts.total, 2);
       assert.equal(verdictLabel(result), 'Evidence links present, dates recent');
-      assert.equal(result.headline, `Both claims point at evidence and were checked within ${input.maxAgeDays} days.`);
+      assert.equal(result.headline, `Both claims have an evidence reference and a review date within ${input.maxAgeDays} days.`);
     }
   }
 });

@@ -197,7 +197,7 @@ export const KITS = [
   // ---------------------------------------------------------------- grounding
   {
     id: 'grounding-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[0],
     name: 'Citations',
     question: 'Does each sentence carry a citation that points at matching evidence?',
@@ -303,10 +303,10 @@ if (!result.isClean) process.exitCode = 1;
   // --------------------------------------------------------------- provenance
   {
     id: 'provenance-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[0],
     name: 'Certainty wording',
-    question: 'Does the copy sound more certain than its source allows?',
+    question: 'Does the copy use stronger words than its source label allows?',
     catches: 'Catch wording that overstates certainty.',
     benchmark: 'strict-mode-for-ci',
     draftKey: 'claims',
@@ -388,7 +388,7 @@ if (offenses.length > 0) process.exitCode = 1;
   // ------------------------------------------------------------ number-trace
   {
     id: 'number-trace-kit',
-    version: '0.1.1',
+    version: '0.1.2',
     group: GROUPS[0],
     name: 'Numbers',
     question: 'Does every number in an AI answer appear in the evidence it was given?',
@@ -581,12 +581,12 @@ if (result.verdict !== 'clean' || qualified > 0${input.table == null ? '' : ' ||
   // ------------------------------------------------------------ corroboration
   {
     id: 'corroboration-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[0],
     name: 'Evidence strength',
-    question: 'Do the sources you looked at agree with the claim?',
-    catches: 'See whether sources agree.',
-    limit: 'Counts the sources you name. It cannot tell whether different sources are really independent.',
+    question: 'Do the sources you list support or contradict the claim, and how strongly?',
+    catches: 'Weigh the sources you list for and against a claim.',
+    limit: 'Uses your labels to count sources. It never opens the sources or checks that they are independent.',
     fields: [
       { key: 'claim', label: 'The claim you are checking', kind: 'line', optional: true },
       { key: 'coverage', label: 'How much of the evidence you looked at', kind: 'choice', options: ['strong', 'partial', 'thin'],
@@ -682,12 +682,12 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
   // ---------------------------------------------------------- claims-registry
   {
     id: 'claims-registry-kit',
-    version: '0.4.0',
+    version: '0.4.1',
     group: GROUPS[1],
     name: 'Claims on your site',
-    question: 'Does each public claim point at evidence that someone reviewed recently?',
-    catches: 'Find claims that need evidence or a review.',
-    limit: 'Checks that a claim points at evidence and that it was reviewed recently, not that the evidence still holds.',
+    question: 'Does each public claim have an evidence reference and a recent review date?',
+    catches: 'Find missing evidence references and overdue review dates.',
+    limit: 'Checks the reference and date you enter. It never opens the evidence or confirms a review happened.',
     fields: [
       { key: 'now', label: 'Date to check against', kind: 'line' },
       { key: 'maxAgeDays', label: 'Re-check claims every N days', kind: 'line' },
@@ -726,8 +726,8 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
       const report = kit.generateClaimsReport(input.claims, maxAgeDays, now);
       const rows = [
         ...report.unverified.map((c) => ({ mark: 'bad', title: clip(c.text), quoted: true, label: 'Evidence link missing', detail: 'No evidence linked, or only a placeholder such as TODO.', fix: 'Link evidence (a test, document or data source), or take the claim down.' })),
-        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), quoted: true, label: 'Review needed', detail: c.ageDays === null ? 'The review date could not be read.' : `Last checked ${staleAge(c.ageDays, maxAgeDays)}. Due for a re-check.`, fix: 'Re-check the evidence and update the review date.' })),
-        ...report.current.map((c) => ({ mark: 'info', title: clip(c.text), quoted: true, label: 'Evidence link present', detail: `Has an evidence link; reviewed ${plural(c.ageDays, 'day')} ago.` })),
+        ...report.stale.map((c) => ({ mark: 'warn', title: clip(c.text), quoted: true, label: 'Review needed', detail: c.ageDays === null ? 'The review date could not be read.' : `The review date was ${staleAge(c.ageDays, maxAgeDays)}. Due for a re-check.`, fix: 'Re-check the evidence and update the review date.' })),
+        ...report.current.map((c) => ({ mark: 'info', title: clip(c.text), quoted: true, label: 'Evidence link present', detail: `Has an evidence reference. The review date was ${plural(c.ageDays, 'day')} ago.` })),
       ];
       const { current, stale, unverified, total } = report.counts;
       const tone = unverified ? 'fail' : stale ? 'warn' : 'info';
@@ -738,8 +738,8 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
       const headline = unverified || stale
         ? `${problems.join(', ')}.`
         : total === 0 ? 'There are no claims to check.'
-        : total === 1 ? `The claim points at evidence and was checked within ${plural(maxAgeDays, 'day')}.`
-        : `${total === 2 ? 'Both claims' : `All ${total} claims`} point at evidence and were checked within ${plural(maxAgeDays, 'day')}.`;
+        : total === 1 ? `The claim has an evidence reference and a review date within ${plural(maxAgeDays, 'day')}.`
+        : `${total === 2 ? 'Both claims' : `All ${total} claims`} have an evidence reference and a review date within ${plural(maxAgeDays, 'day')}.`;
       const mark = (c) => (report.unverified.includes(c) ? 'bad' : report.stale.includes(c) ? 'warn' : 'info');
       const items = [...report.current, ...report.stale, ...report.unverified].map((c) => ({ label: c.id, ageDays: c.ageDays, mark: mark(c) }));
       return {
@@ -748,7 +748,7 @@ if (result.direction !== 'supports' || result.verdict !== 'confirmed') process.e
         headline,
         counts: [['current', current, 'info'], ['overdue', stale, 'warn'], ['no evidence link', unverified, 'bad']],
         rows,
-        viz: { type: 'timeline', items, thresholds: [{ days: maxAgeDays, label: `re-check after ${maxAgeDays}d` }], unit: 'days since last checked' },
+        viz: { type: 'timeline', items, thresholds: [{ days: maxAgeDays, label: `re-check after ${maxAgeDays}d` }], unit: 'days since the review date' },
         raw: report,
       };
     },
@@ -767,7 +767,7 @@ if (report.counts.unverified + report.counts.stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------------- freshness
   {
     id: 'freshness-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[1],
     name: 'Freshness labels',
     question: 'How old is this information, and what should its label say?',
@@ -863,7 +863,7 @@ if (stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------- accuracy-claim
   {
     id: 'accuracy-claim-kit',
-    version: '0.1.1',
+    version: '0.1.2',
     group: GROUPS[1],
     name: 'Accuracy figures',
     question: 'Do the counts behind an accuracy figure carry it?',
@@ -1051,11 +1051,11 @@ if (result.verdict !== 'supported') process.exitCode = 1;
   // ------------------------------------------------------------------ parity
   {
     id: 'parity-kit',
-    version: '0.1.1',
+    version: '0.1.2',
     group: GROUPS[1],
     name: 'Copies and dates',
-    question: 'Does every copy of a fact still match its source, and did the review date move for a reason?',
-    catches: 'Catch copies that drift and review dates that move.',
+    question: 'Do the copies you supply match your source data? Did a review date move while the data stayed the same?',
+    catches: 'Flag mismatched copies and review dates that moved while the data stayed the same.',
     benchmark: 'accuracy-on-real-data',
     limit: 'Compares the data you give it. It does not know which copy is right, prove that a person rechecked anything or check that a value is true.',
     fields: [
@@ -1256,7 +1256,7 @@ if (!mirror.ok${skip ? '' : ' || !audit.ok'}) process.exitCode = 1;
   // ------------------------------------------------------- payout-invariance
   {
     id: 'payout-invariance-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[2],
     name: 'Paid placement',
     question: 'Would your rankings change if a partner paid you more?',
@@ -1343,7 +1343,7 @@ if (!result.passed) process.exitCode = 1;
   // ----------------------------------------------------- mutation-invariance
   {
     id: 'mutation-invariance-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[2],
     name: 'Hidden factors',
     question: 'Does a decision change when a field it should ignore changes?',
@@ -1411,7 +1411,7 @@ if (!result.passed) process.exitCode = 1;
   // ------------------------------------------------------------ advice-ledger
   {
     id: 'advice-ledger-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[2],
     name: 'Did the advice work?',
     question: 'After someone followed a recommendation, did the problem actually get better?',
@@ -1499,13 +1499,13 @@ if (grade.verdict === 'not-holding') process.exitCode = 1;
   // --------------------------------------------------------------- trust-core
   {
     id: 'trust-core',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[3],
     name: 'Review patterns',
     question: 'Do the review scores or sources show an unusual pattern?',
-    catches: 'Spot unusually uniform or single-source reviews.',
+    catches: 'Spot unusually uniform praise or reviews from too few source types.',
     benchmark: 'readme',
-    limit: 'Flags two cheap patterns (one source, near-identical sentiment). It cannot prove any review is fake.',
+    limit: 'Flags reviews from too few source types or with unusually uniform praise. It cannot prove any review is fake.',
     fields: [
       { key: 'now', label: 'Date to check against', kind: 'line' },
       { key: 'reviews', label: 'Reviews: source site, sentiment (-1 to 1), confidence (0 to 1)', kind: 'json', rows: 10 },
@@ -1589,11 +1589,11 @@ if (result.flags.lowSourceCount || result.flags.uniformSentiment) process.exitCo
   // -------------------------------------------------------- agent-receipt
   {
     id: 'agent-receipt-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[3],
     name: 'Agent receipts',
-    question: 'Did your AI agent stay inside what it was allowed to do, and do its claims match reality?',
-    catches: 'Catch actions outside an agent’s permissions.',
+    question: 'Do the actions the agent reported fit its permissions? Do its claims match what you observed?',
+    catches: 'Flag reported actions outside the permissions you gave.',
     collapseInputs: true,
     limit: 'Compares what the assistant reports with what you allowed and what you checked yourself. “Accepted” means the check found no mismatch.',
     fields: [
@@ -1677,11 +1677,11 @@ if (!result.accepted) process.exitCode = 1;
   // -------------------------------------------------------------- audit-chain
   {
     id: 'audit-chain-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[3],
     name: 'Tamper-evident log',
-    question: 'Has anyone edited or deleted entries in this log after the fact?',
-    catches: 'Catch edits and deletions in a log.',
+    question: 'Do the log entries still match the fingerprints saved when they were written?',
+    catches: 'Catch edited entries, and deleted ones if you keep a copy of the last entry.',
     limit: 'Detects changes by comparing entries with saved fingerprints (hashes). Keep the record of the last entry somewhere the log’s writer cannot edit, or a full rewrite goes unnoticed.',
     fields: [
       { key: 'entries', label: 'Log entries, in order', kind: 'json', rows: 12 },
@@ -1782,7 +1782,7 @@ if (!result.valid) process.exitCode = 1;
   // ------------------------------------------------------------ cost-governor
   {
     id: 'cost-governor-kit',
-    version: '0.3.0',
+    version: '0.3.1',
     group: GROUPS[4],
     name: 'AI spend cap',
     question: 'Will the next AI request push you over your budget?',
@@ -1855,7 +1855,7 @@ if (!check.allowed) process.exitCode = 1;
 /** The MCP server with tools for all 15 kits, for AI coding agents. */
 export const MCP = {
   id: 'honesty-mcp',
-  version: '0.4.0',
+  version: '0.4.1',
   serverName: 'honesty-mcp',
   config: { command: 'npx', args: ['-y', 'honesty-mcp'] },
 };
