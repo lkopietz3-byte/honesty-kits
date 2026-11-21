@@ -863,7 +863,7 @@ if (stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------- accuracy-claim
   {
     id: 'accuracy-claim-kit',
-    version: '0.1.2',
+    version: '0.1.3',
     group: GROUPS[1],
     name: 'Accuracy figures',
     question: 'Do the counts behind an accuracy figure carry it?',
