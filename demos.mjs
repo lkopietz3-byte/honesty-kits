@@ -863,12 +863,12 @@ if (stale > 0) process.exitCode = 1;
   // ---------------------------------------------------------- accuracy-claim
   {
     id: 'accuracy-claim-kit',
-    version: '0.1.2',
+    version: '0.1.3',
     group: GROUPS[1],
     name: 'Accuracy figures',
     question: 'Do the counts behind an accuracy figure carry it?',
     catches: 'See what accuracy figure your counts support.',
-    benchmark: 'agreement-with-an-independent-oracle-and-a-hand-labeled-holdout',
+    benchmark: 'agreement-with-a-second-implementation-and-a-spot-checked-holdout',
     limit: 'Takes your word on who labeled the items and how they were picked. It judges the figure against the counts, not whether the system is accurate.',
     fields: [
       { key: 'claim', label: 'The figure you want to publish', kind: 'json', rows: 6 },
