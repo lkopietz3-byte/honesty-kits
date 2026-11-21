@@ -331,7 +331,7 @@ test('benchmark links point to results in the installed kit documentation', () =
     'grounding-kit': 'readme',
     'provenance-kit': 'strict-mode-for-ci',
     'number-trace-kit': 'accuracy-on-real-data',
-    'accuracy-claim-kit': 'agreement-with-an-independent-oracle-and-a-hand-labeled-holdout',
+    'accuracy-claim-kit': 'agreement-with-a-second-implementation-and-a-spot-checked-holdout',
     'parity-kit': 'accuracy-on-real-data',
     'trust-core': 'readme',
   };
