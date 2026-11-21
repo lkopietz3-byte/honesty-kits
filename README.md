@@ -5,7 +5,7 @@ Catch the numbers, citations and accuracy claims your AI can't back up. Small, d
 [![The playground: a number the AI made up is caught and fixed, Citations shows a contradiction that still passes its word-overlap check, and the same check comes out as CI code](docs/demo.gif)](https://lkopietz3-byte.github.io/honesty-kits/)
 
 **[Try every kit in your browser →](https://lkopietz3-byte.github.io/honesty-kits/)**
-Pick a check, try an example or paste your own text, and see the verdict, each sentence marked with what was found, a fix for each problem, what the check does not cover, and the code to run the same check in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy tells the browser to block requests to any other site.
+Pick a check, try an example or paste your own text, and see the verdict, the findings, suggested fixes where available, the check’s limits, and code you can use in CI. The page runs the published npm builds in your browser. It serves those files itself and makes no third-party requests, and its Content-Security-Policy tells the browser to block requests to any other site.
 
 ## How well they work
 
@@ -15,7 +15,7 @@ These have a benchmark you can rerun from the repository (number-trace-kit downl
 - **[accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit/blob/main/README.md#agreement-with-an-independent-oracle-and-a-hand-labeled-holdout)**: its verdict matches a separately written oracle on 2,001 of 2,001 claims built from 216 rates printed in public FDA 510(k) summaries, and the hand label on 103 of 103 claims from 30 open-access papers and one vendor page. The oracle and the labels follow the README's rules and come from the same author, and only 6 of the 103 go through the interval math, so this shows the kit does what it documents, not that the rules are right.
 - **[parity-kit](https://github.com/lkopietz3-byte/parity-kit/blob/main/README.md#accuracy-on-real-data)**: on a holdout labeled before the kit ever ran on it (IANA status phrases, SPDX licenses, Gitea strings), it missed 0 of 7,526 items that should flag and wrongly flagged 0 of 37,965 that should pass. The labels come from the author's own scripts and items from one file are correlated, so read the zero as no failures seen, not as a probability.
 
-[grounding-kit](https://github.com/lkopietz3-byte/grounding-kit#readme), [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit/blob/main/README.md#strict-mode-for-ci) and [trust-core](https://github.com/lkopietz3-byte/trust-core#readme) report smaller measured results in their own READMEs, including where they fail: a negation or a changed number often passes grounding-kit's word-overlap check. The other kits have tests for the behavior their READMEs document and a section on their limits, but no measured results yet. The playground marks those "Not benchmarked yet".
+[grounding-kit](https://github.com/lkopietz3-byte/grounding-kit#readme), [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit/blob/main/README.md#strict-mode-for-ci) and [trust-core](https://github.com/lkopietz3-byte/trust-core#readme) report smaller measured results in their own READMEs, including where they fail: a negation or a changed number often passes grounding-kit's word-overlap check. The other kits have tests and explain what they can check. Some report results for a specific test. For example, [audit-chain-kit](https://github.com/lkopietz3-byte/audit-chain-kit#readme) reports that a separately written version produced the same digital fingerprints. The playground uses "Not benchmarked yet" when it has no benchmark to link to.
 
 ## The kits
 
@@ -26,17 +26,17 @@ There are 15 kits, each its own npm package, MIT licensed, with zero runtime dep
 | Kit | What it checks | Try it |
 | --- | --- | --- |
 | [grounding-kit](https://github.com/lkopietz3-byte/grounding-kit) | Does each sentence carry a citation that points at matching evidence? Flags missing citations, unknown source IDs and too little word overlap. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#grounding-kit) |
-| [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit) | Does the copy sound more certain than its source allows ("independently verified", "guaranteed")? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#provenance-kit) |
-| [number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit) | Does every number in an AI answer appear in the evidence it was given, and do the rows add up to the printed total? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#number-trace-kit) |
-| [corroboration-kit](https://github.com/lkopietz3-byte/corroboration-kit) | How strong is the evidence for a claim, and does it point for or against it? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#corroboration-kit) |
+| [provenance-kit](https://github.com/lkopietz3-byte/provenance-kit) | Does the copy use stronger words than its source label allows, such as "independently verified" or "guaranteed"? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#provenance-kit) |
+| [number-trace-kit](https://github.com/lkopietz3-byte/number-trace-kit) | Does every number in an AI answer appear in the evidence it was given, and do the rows add up to the printed total? Numbers written as words are not read. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#number-trace-kit) |
+| [corroboration-kit](https://github.com/lkopietz3-byte/corroboration-kit) | Do the sources you list support or contradict the claim, and how strongly? It uses your labels and never opens the sources. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#corroboration-kit) |
 
 ### Keep public claims honest
 
 | Kit | What it checks | Try it |
 | --- | --- | --- |
-| [claims-registry-kit](https://github.com/lkopietz3-byte/claims-registry-kit) | Does each claim point at evidence that someone reviewed recently? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#claims-registry-kit) |
+| [claims-registry-kit](https://github.com/lkopietz3-byte/claims-registry-kit) | Does each claim have an evidence reference and a recent review date? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#claims-registry-kit) |
 | [accuracy-claim-kit](https://github.com/lkopietz3-byte/accuracy-claim-kit) | Do the counts behind an accuracy or error-rate figure carry it? Shows the interval the counts allow and a statement the evidence supports. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#accuracy-claim-kit) |
-| [parity-kit](https://github.com/lkopietz3-byte/parity-kit) | Does every copy of a fact still match its source, and did a review date move for a reason you can see in the data? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#parity-kit) |
+| [parity-kit](https://github.com/lkopietz3-byte/parity-kit) | Do the copies you supply match your source data? Did a review date move while the data stayed the same? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#parity-kit) |
 | [freshness-kit](https://github.com/lkopietz3-byte/freshness-kit) | How old is this information, and what should its "last reviewed" label say? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#freshness-kit) |
 
 ### Test ranking and decision code
@@ -51,9 +51,9 @@ There are 15 kits, each its own npm package, MIT licensed, with zero runtime dep
 
 | Kit | What it checks | Try it |
 | --- | --- | --- |
-| [trust-core](https://github.com/lkopietz3-byte/trust-core) | Do anonymous reviews look organic, or like a pattern worth a closer look? Plus credibility-weighted scores for known reviewers. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#trust-core) |
-| [agent-receipt-kit](https://github.com/lkopietz3-byte/agent-receipt-kit) | Did your AI agent stay inside what it was allowed to do, and do its claims match what you see? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#agent-receipt-kit) |
-| [audit-chain-kit](https://github.com/lkopietz3-byte/audit-chain-kit) | Has anyone edited or deleted entries in this log after the fact? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#audit-chain-kit) |
+| [trust-core](https://github.com/lkopietz3-byte/trust-core) | Do anonymous reviews come from very few types of sources, or do they show unusually uniform praise? The kit can also weigh reviews using what you know about the reviewers. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#trust-core) |
+| [agent-receipt-kit](https://github.com/lkopietz3-byte/agent-receipt-kit) | Do the actions the agent reported fit its permissions? Do its claims match what you observed? | [playground](https://lkopietz3-byte.github.io/honesty-kits/#agent-receipt-kit) |
+| [audit-chain-kit](https://github.com/lkopietz3-byte/audit-chain-kit) | Do the log entries still match the fingerprints saved when they were written? Deleted entries show up only if you keep a copy of the last entry. | [playground](https://lkopietz3-byte.github.io/honesty-kits/#audit-chain-kit) |
 
 ### Control AI spend
 
@@ -74,10 +74,10 @@ claude mcp add honesty-mcp -- npx -y honesty-mcp
 ## How they behave
 
 - **No dependencies, no network.** Each package ships plain ESM with types. Nothing phones home.
-- **Strict about input.** Malformed input throws a clear error instead of producing a plausible wrong answer.
+- **Strict about input.** Checks reject malformed data with an error or report an invalid result, depending on the API.
 - **Honest about limits.** Every kit's README has a section on its limits, and every result in the playground says what the kit does not check. A structural citation check is not a fact check; passing a scenario test is evidence, not a proof.
-- **Built to run in CI.** The playground's "Use it in your code" button gives you the same check as a module that exits with code 1 when it finds a problem.
-- **Shareable.** "Copy link" (or Share on a phone, which opens the system share sheet) gives a link that opens the kit with your exact input, and copied reports include it. The example travels in the URL fragment, which browsers never send to a server.
+- **Built to run in CI.** The playground's "Use it in your code" button gives you a module that runs the check. Each check has its own rule for when to exit with an error.
+- **Shareable.** “Copy link” and copied reports include a link that restores your input if it fits. On phones, Share opens the system share menu when available and copies the link if sharing is unavailable. The example travels in the URL fragment, which browsers never send to a server.
 
 ## This repository
 

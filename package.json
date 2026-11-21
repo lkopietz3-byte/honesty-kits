@@ -8,22 +8,22 @@
     "serve": "node tools/serve.mjs"
   },
   "devDependencies": {
-    "accuracy-claim-kit": "0.1.1",
-    "advice-ledger-kit": "0.3.0",
-    "agent-receipt-kit": "0.3.0",
-    "audit-chain-kit": "0.3.0",
-    "claims-registry-kit": "0.4.0",
-    "corroboration-kit": "0.3.0",
-    "cost-governor-kit": "0.3.0",
-    "freshness-kit": "0.3.0",
+    "accuracy-claim-kit": "0.1.2",
+    "advice-ledger-kit": "0.3.1",
+    "agent-receipt-kit": "0.3.1",
+    "audit-chain-kit": "0.3.1",
+    "claims-registry-kit": "0.4.1",
+    "corroboration-kit": "0.3.1",
+    "cost-governor-kit": "0.3.1",
+    "freshness-kit": "0.3.1",
     "gifenc": "1.0.3",
-    "grounding-kit": "0.3.0",
-    "mutation-invariance-kit": "0.3.0",
-    "number-trace-kit": "0.1.1",
-    "parity-kit": "0.1.1",
-    "payout-invariance-kit": "0.3.0",
+    "grounding-kit": "0.3.1",
+    "mutation-invariance-kit": "0.3.1",
+    "number-trace-kit": "0.1.2",
+    "parity-kit": "0.1.2",
+    "payout-invariance-kit": "0.3.1",
     "pngjs": "7.0.0",
-    "provenance-kit": "0.3.0",
-    "trust-core": "0.3.0"
+    "provenance-kit": "0.3.1",
+    "trust-core": "0.3.1"
   }
 }
